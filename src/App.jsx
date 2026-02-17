@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ShoppingCart, List, Package, Trash2 } from 'lucide-react';
 
 export default function App() {
   const [carrito, setCarrito] = useState([]);
@@ -14,51 +13,64 @@ export default function App() {
   const agregar = (p) => setCarrito([...carrito, { ...p, idTemp: Date.now() }]);
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-24 font-sans">
-      <header className="bg-white p-4 shadow-sm text-center">
-        <h1 className="text-xl font-black text-blue-600">PACA PRO v1.0</h1>
+    <div style={{ fontFamily: 'sans-serif', minHeight: '100vh', backgroundColor: '#f3f4f6', paddingBottom: '80px' }}>
+      {/* HEADER */}
+      <header style={{ backgroundColor: 'white', padding: '20px', textAlign: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+        <h1 style={{ margin: 0, color: '#2563eb', fontWeight: '900' }}>PACA PRO v1.0</h1>
       </header>
 
-      <main className="p-4">
+      <main style={{ padding: '20px' }}>
         {vista === 'pos' ? (
-          <div className="max-w-md mx-auto space-y-4">
-            <div className="bg-blue-600 p-6 rounded-3xl text-white shadow-lg">
-              <p className="text-xs opacity-70 uppercase font-bold">Total a Cobrar</p>
-              <p className="text-5xl font-black">${carrito.reduce((acc, p) => acc + p.precio, 0)}</p>
+          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+            <div style={{ backgroundColor: '#2563eb', padding: '30px', borderRadius: '20px', color: 'white', marginBottom: '20px' }}>
+              <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>TOTAL A COBRAR</p>
+              <p style={{ margin: 0, fontSize: '48px', fontWeight: '900' }}>
+                ${carrito.reduce((acc, p) => acc + p.precio, 0)}
+              </p>
             </div>
-            <div className="bg-white p-4 rounded-2xl shadow-sm border">
-              {carrito.length === 0 ? <p className="text-gray-400 text-center py-4">Carrito vacío</p> : 
+
+            <div style={{ backgroundColor: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #e5e7eb' }}>
+              {carrito.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#9ca3af' }}>Carrito vacío</p>
+              ) : (
                 carrito.map((p) => (
-                  <div key={p.idTemp} className="flex justify-between border-b py-3 last:border-0">
-                    <span className="font-medium">{p.nombre}</span>
-                    <span className="font-bold text-blue-600">${p.precio}</span>
+                  <div key={p.idTemp} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f3f4f6' }}>
+                    <span>{p.nombre}</span>
+                    <span style={{ fontWeight: 'bold' }}>${p.precio}</span>
                   </div>
                 ))
-              }
+              )}
             </div>
-            <button onClick={() => {alert('Venta realizada'); setCarrito([])}} className="w-full bg-black text-white py-4 rounded-2xl font-bold text-lg active:scale-95 transition">COBRAR</button>
+
+            <button 
+              onClick={() => {alert('Venta realizada'); setCarrito([])}}
+              style={{ width: '100%', backgroundColor: 'black', color: 'white', padding: '20px', borderRadius: '15px', fontWeight: 'bold', marginTop: '20px', border: 'none', fontSize: '18px' }}
+            >
+              COBRAR
+            </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             {productosPrueba.map(p => (
-              <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm border text-center">
-                <Package className="mx-auto text-blue-200 mb-2" size={32} />
-                <p className="font-bold text-sm">{p.nombre}</p>
-                <p className="text-blue-600 font-black text-lg">${p.precio}</p>
-                <button onClick={() => agregar(p)} className="mt-2 w-full bg-blue-50 text-blue-600 py-2 rounded-xl text-xs font-bold active:bg-blue-600 active:text-white transition">Añadir</button>
+              <div key={p.id} style={{ backgroundColor: 'white', padding: '15px', borderRadius: '15px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+                <p style={{ fontWeight: 'bold', margin: '5px 0' }}>{p.nombre}</p>
+                <p style={{ color: '#2563eb', fontWeight: '900', fontSize: '20px', margin: '5px 0' }}>${p.precio}</p>
+                <button 
+                  onClick={() => agregar(p)}
+                  style={{ width: '100%', backgroundColor: '#eff6ff', color: '#2563eb', padding: '8px', borderRadius: '10px', border: 'none', fontWeight: 'bold' }}
+                >
+                  Añadir
+                </button>
               </div>
             ))}
           </div>
         )}
       </main>
 
-      <nav className="fixed bottom-0 w-full bg-white p-4 flex justify-around border-t shadow-2xl">
-        <button onClick={() => setVista('pos')} className={vista === 'pos' ? "text-blue-600" : "text-gray-400"}>
-          <ShoppingCart size={24} className="mx-auto"/><span className="text-[10px] font-bold">VENTA</span>
-        </button>
-        <button onClick={() => setVista('catalogo')} className={vista === 'catalogo' ? "text-blue-600" : "text-gray-400"}>
-          <List size={24} className="mx-auto"/><span className="text-[10px] font-bold">CATÁLOGO</span>
-        </button>
+      {/* NAVBAR */}
+      <nav style={{ position: 'fixed', bottom: 0, width: '100%', backgroundColor: 'white', display: 'flex', justifyContent: 'space-around', padding: '15px 0', borderTop: '1px solid #e5e7eb' }}>
+        <button onClick={() => setVista('pos')} style={{ border: 'none', background: 'none', color: vista === 'pos' ? '#2563eb' : '#9ca3af', fontWeight: 'bold' }}>VENTA</button>
+        <button onClick={() => setVista('catalogo')} style={{ border: 'none', background: 'none', color: vista === 'catalogo' ? '#2563eb' : '#9ca3af', fontWeight: 'bold' }}>CATÁLOGO</button>
       </nav>
     </div>
   );
