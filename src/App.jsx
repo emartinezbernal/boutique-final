@@ -28,21 +28,32 @@ export default function App() {
   async function guardarEnBD(e) {
     e.preventDefault();
     if (!nuevoProd.nombre || !nuevoProd.precio) return alert("Llena los datos");
-
     const { error } = await supabase
       .from('productos')
-      .insert([{ 
-        nombre: nuevoProd.nombre, 
-        precio: parseFloat(nuevoProd.precio) 
-      }]);
-
+      .insert([{ nombre: nuevoProd.nombre, precio: parseFloat(nuevoProd.precio) }]);
     if (error) {
       alert("Error: " + error.message);
     } else {
-      alert("✅ Guardado en la nube");
       setNuevoProd({ nombre: '', precio: '' });
       obtenerProductos();
       setVista('catalogo');
+    }
+  }
+
+  // --- NUEVA FUNCIÓN PARA BORRAR ---
+  async function borrarProducto(id) {
+    const confirmar = window.confirm("¿Seguro que quieres eliminar esta prenda?");
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from('productos')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      alert("Error al borrar: " + error.message);
+    } else {
+      obtenerProductos(); // Recarga la lista
     }
   }
 
@@ -67,7 +78,15 @@ export default function App() {
         {vista === 'catalogo' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             {inventario.map(p => (
-              <div key={p.id} style={{ backgroundColor: 'white', padding: '15px', borderRadius: '15px', textAlign: 'center', border: '1px solid #eee' }}>
+              <div key={p.id} style={{ backgroundColor: 'white', padding: '15px', borderRadius: '15px', textAlign: 'center', border: '1px solid #eee', position: 'relative' }}>
+                {/* BOTÓN X PARA BORRAR */}
+                <button 
+                  onClick={() => borrarProducto(p.id)} 
+                  style={{ position: 'absolute', top: '5px', right: '5px', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '50%', width: '25px', height: '25px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  X
+                </button>
+                
                 <p style={{ fontWeight: 'bold', margin: '5px 0' }}>{p.nombre}</p>
                 <p style={{ color: '#2563eb', fontWeight: 'bold', fontSize: '20px' }}>${p.precio}</p>
                 <button onClick={() => setCarrito([...carrito, p])} style={{ width: '100%', padding: '8px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px' }}>+ Vender</button>
@@ -88,9 +107,9 @@ export default function App() {
       </main>
 
       <nav style={{ position: 'fixed', bottom: 0, width: '100%', backgroundColor: 'white', display: 'flex', justifyContent: 'space-around', padding: '15px 0', borderTop: '1px solid #eee' }}>
-        <button onClick={() => setVista('pos')} style={{ border: 'none', background: 'none', color: vista === 'pos' ? '#2563eb' : '#999' }}>VENTA</button>
-        <button onClick={() => setVista('catalogo')} style={{ border: 'none', background: 'none', color: vista === 'catalogo' ? '#2563eb' : '#999' }}>INVENTARIO</button>
-        <button onClick={() => setVista('admin')} style={{ border: 'none', background: 'none', color: vista === 'admin' ? '#2563eb' : '#999' }}>➕ NUEVO</button>
+        <button onClick={() => setVista('pos')} style={{ border: 'none', background: 'none', color: vista === 'pos' ? '#2563eb' : '#999', fontWeight: 'bold' }}>VENTA</button>
+        <button onClick={() => setVista('catalogo')} style={{ border: 'none', background: 'none', color: vista === 'catalogo' ? '#2563eb' : '#999', fontWeight: 'bold' }}>INVENTARIO</button>
+        <button onClick={() => setVista('admin')} style={{ border: 'none', background: 'none', color: vista === 'admin' ? '#2563eb' : '#999', fontWeight: 'bold' }}>➕ NUEVO</button>
       </nav>
     </div>
   );
