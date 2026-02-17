@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// --- CONFIGURACIÓN DE TU BASE DE DATOS CORREGIDA ---
+// --- CONFIGURACIÓN DE TU BASE DE DATOS ---
 const supabase = createClient(
   'https://jznfomuaxipfigxgokap.supabase.co', 
   'sb_publishable_WjqrlE0gXGWUUYSkefmZBQ_NIzjJHNn'
@@ -13,7 +13,6 @@ export default function App() {
   const [inventario, setInventario] = useState([]);
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '' });
 
-  // 1. CARGAR PRODUCTOS DESDE SUPABASE AL ABRIR LA APP
   useEffect(() => {
     obtenerProductos();
   }, []);
@@ -23,15 +22,12 @@ export default function App() {
       .from('productos')
       .select('*')
       .order('created_at', { ascending: false });
-    
     if (data) setInventario(data);
-    if (error) console.error("Error al cargar:", error.message);
   }
 
-  // 2. GUARDAR PRODUCTO NUEVO EN SUPABASE
   async function guardarEnBD(e) {
     e.preventDefault();
-    if (!nuevoProd.nombre || !nuevoProd.precio) return alert("Por favor, llena todos los datos");
+    if (!nuevoProd.nombre || !nuevoProd.precio) return alert("Llena los datos");
 
     const { error } = await supabase
       .from('productos')
@@ -41,68 +37,61 @@ export default function App() {
       }]);
 
     if (error) {
-      alert("Error al guardar: " + error.message);
+      alert("Error: " + error.message);
     } else {
-      alert("✅ ¡Guardado permanentemente en la nube!");
+      alert("✅ Guardado en la nube");
       setNuevoProd({ nombre: '', precio: '' });
-      obtenerProductos(); // Recarga la lista para que aparezca el nuevo
-      setVista('catalogo'); // Te regresa a ver los productos
+      obtenerProductos();
+      setVista('catalogo');
     }
   }
 
   return (
     <div style={{ fontFamily: 'sans-serif', minHeight: '100vh', backgroundColor: '#f3f4f6', paddingBottom: '90px' }}>
-      
-      {/* CABECERA */}
-      <header style={{ backgroundColor: 'white', padding: '20px', textAlign: 'center', borderBottom: '2px solid #2563eb', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-        <h1 style={{ margin: 0, color: '#2563eb', fontSize: '22px', fontWeight: '900' }}>
-          PACA PRO <span style={{fontSize: '10px', color: '#10b981', verticalAlign: 'middle'}}>● ONLINE</span>
-        </h1>
+      <header style={{ backgroundColor: 'white', padding: '20px', textAlign: 'center', borderBottom: '2px solid #2563eb' }}>
+        <h1 style={{ margin: 0, color: '#2563eb', fontSize: '20px' }}>PACA PRO ONLINE</h1>
       </header>
 
       <main style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
-        
-        {/* VISTA: REGISTRAR (ESTO ES LO QUE BUSCABAS) */}
         {vista === 'admin' && (
-          <div style={{ backgroundColor: 'white', padding: '25px', borderRadius: '24px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-            <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Registrar Nueva Prenda</h2>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '20px' }}>
+            <h2 style={{ textAlign: 'center' }}>Nueva Prenda</h2>
             <form onSubmit={guardarEnBD}>
-              <label style={{display: 'block', fontSize: '14px', marginBottom: '5px', color: '#666'}}>Nombre de la prenda</label>
-              <input 
-                type="text" 
-                placeholder="Ej. Pantalón Levis" 
-                value={nuevoProd.nombre} 
-                onChange={(e) => setNuevoProd({...nuevoProd, nombre: e.target.value})} 
-                style={{ width: '100%', padding: '15px', marginBottom: '15px', borderRadius: '12px', border: '1px solid #ddd', boxSizing: 'border-box', fontSize: '16px' }} 
-              />
-              
-              <label style={{display: 'block', fontSize: '14px', marginBottom: '5px', color: '#666'}}>Precio de venta ($)</label>
-              <input 
-                type="number" 
-                placeholder="0.00" 
-                value={nuevoProd.precio} 
-                onChange={(e) => setNuevoProd({...nuevoProd, precio: e.target.value})} 
-                style={{ width: '100%', padding: '15px', marginBottom: '25px', borderRadius: '12px', border: '1px solid #ddd', boxSizing: 'border-box', fontSize: '16px' }} 
-              />
-              
-              <button type="submit" style={{ width: '100%', padding: '18px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
-                GUARDAR EN NUBE
-              </button>
+              <input type="text" placeholder="Nombre" value={nuevoProd.nombre} onChange={(e) => setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{ width: '100%', padding: '15px', marginBottom: '10px', borderRadius: '10px', border: '1px solid #ddd', boxSizing: 'border-box' }} />
+              <input type="number" placeholder="Precio" value={nuevoProd.precio} onChange={(e) => setNuevoProd({...nuevoProd, precio: e.target.value})} style={{ width: '100%', padding: '15px', marginBottom: '20px', borderRadius: '10px', border: '1px solid #ddd', boxSizing: 'border-box' }} />
+              <button type="submit" style={{ width: '100%', padding: '15px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>GUARDAR EN NUBE</button>
             </form>
           </div>
         )}
 
-        {/* VISTA: CATÁLOGO / INVENTARIO */}
         {vista === 'catalogo' && (
-          <div>
-            <h3 style={{color: '#444', marginBottom: '15px'}}>Inventario Disponible</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {inventario.length === 0 ? (
-                <p style={{gridColumn: 'span 2', textAlign: 'center', color: '#999', padding: '40px'}}>No hay productos. ¡Agrega el primero!</p>
-              ) : (
-                inventario.map(p => (
-                  <div key={p.id} style={{ backgroundColor: 'white', padding: '15px', borderRadius: '20px', textAlign: 'center', border: '1px solid #eee', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                    <p style={{ fontWeight: 'bold', margin: '5px 0', fontSize: '14px' }}>{p.nombre}</p>
-                    <p style={{ color: '#2563eb', fontWeight: '900', fontSize: '22px', margin: '5px 0' }}>${p.precio}</p>
-                    <button onClick={() => setCarrito([...carrito, p])} style
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            {inventario.map(p => (
+              <div key={p.id} style={{ backgroundColor: 'white', padding: '15px', borderRadius: '15px', textAlign: 'center', border: '1px solid #eee' }}>
+                <p style={{ fontWeight: 'bold', margin: '5px 0' }}>{p.nombre}</p>
+                <p style={{ color: '#2563eb', fontWeight: 'bold', fontSize: '20px' }}>${p.precio}</p>
+                <button onClick={() => setCarrito([...carrito, p])} style={{ width: '100%', padding: '8px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px' }}>+ Vender</button>
+              </div>
+            ))}
+          </div>
+        )}
 
+        {vista === 'pos' && (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ backgroundColor: '#2563eb', color: 'white', padding: '30px', borderRadius: '20px', marginBottom: '20px' }}>
+              <p>TOTAL CARRITO</p>
+              <h2 style={{ fontSize: '40px' }}>${carrito.reduce((acc, p) => acc + p.precio, 0)}</h2>
+            </div>
+            <button onClick={() => {alert("Venta procesada"); setCarrito([])}} style={{ width: '100%', padding: '15px', backgroundColor: 'black', color: 'white', borderRadius: '10px', border: 'none' }}>COBRAR</button>
+          </div>
+        )}
+      </main>
+
+      <nav style={{ position: 'fixed', bottom: 0, width: '100%', backgroundColor: 'white', display: 'flex', justifyContent: 'space-around', padding: '15px 0', borderTop: '1px solid #eee' }}>
+        <button onClick={() => setVista('pos')} style={{ border: 'none', background: 'none', color: vista === 'pos' ? '#2563eb' : '#999' }}>VENTA</button>
+        <button onClick={() => setVista('catalogo')} style={{ border: 'none', background: 'none', color: vista === 'catalogo' ? '#2563eb' : '#999' }}>INVENTARIO</button>
+        <button onClick={() => setVista('admin')} style={{ border: 'none', background: 'none', color: vista === 'admin' ? '#2563eb' : '#999' }}>➕ NUEVO</button>
+      </nav>
+    </div>
+  );
+}
