@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 
 // --- CONFIGURACIÓN DE TU BASE DE DATOS ---
 const supabase = createClient(
-  https://jznfomuaxipfigxgokap.supabase.co, 
- sb_publishable_WjqrlE0gXGWUUYSkefmZBQ_NIzjJHNn
+  'https://jznfomuaxipfigxgokap.supabase.co', 
+  'sb_publishable_WjqrlE0gXGWUUYSkefmZBQ_NIzjJHNn'
 );
 
 export default function App() {
@@ -94,3 +94,4 @@ export default function App() {
     </div>
   );
 }
+
