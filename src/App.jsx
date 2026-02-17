@@ -105,3 +105,4 @@ export default function App() {
                     <p style={{ fontWeight: 'bold', margin: '5px 0', fontSize: '14px' }}>{p.nombre}</p>
                     <p style={{ color: '#2563eb', fontWeight: '900', fontSize: '22px', margin: '5px 0' }}>${p.precio}</p>
                     <button onClick={() => setCarrito([...carrito, p])} style
+
