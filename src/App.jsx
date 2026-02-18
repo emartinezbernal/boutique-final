@@ -22,12 +22,12 @@ export default function App() {
   useEffect(() => { obtenerTodo(); }, []);
 
   async function obtenerTodo() {
-    const resP = await supabase.from('productos').select('*').order('created_at', { ascending: false });
-    if (resP.data) setInventario(resP.data);
-    const resV = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
-    if (resV.data) setHistorial(resV.data);
-    const resG = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
-    if (resG.data) setGastos(resG.data);
+    const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
+    if (p) setInventario(p);
+    const { data: v } = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
+    if (v) setHistorial(v);
+    const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
+    if (g) setGastos(g);
   }
 
   const carritoAgrupado = useMemo(() => {
@@ -55,29 +55,39 @@ export default function App() {
   const totalGastos = gastosHoy.reduce((a, b) => a + Number(b.monto || 0), 0);
   const utilidadNeta = totalVendido - totalCosto - totalGastos;
 
-  const enviarWhatsapp = (detalles, total) => {
-    let msg = `*🛍️ RECIBO PACA PRO*\nFecha: ${new Date().toLocaleString()}\n--------------------------\n`;
-    detalles.forEach(i => { msg += `• ${i.nombre} x${i.cantCar}: *$${i.subtotal}*\n`; });
-    msg += `--------------------------\n*TOTAL: $${total}*\n¡Gracias! ✨`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  const enviarWhatsapp = (detalles, total, metodo) => {
+    let msg = `*🛍️ RECIBO PACA PRO*\n📅 ${new Date().toLocaleDateString()} | 🕒 ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}\n`;
+    msg += `--------------------------\n`;
+    detalles.forEach(i => { msg += `• ${i.nombre} (x${i.cantCar}): *$${i.subtotal}*\n`; });
+    msg += `--------------------------\n`;
+    msg += `*MÉTODO DE PAGO:* ${metodo.toUpperCase()}\n`;
+    msg += `*TOTAL PAGADO: $${total}*\n`;
+    msg += `--------------------------\n¡Gracias por tu compra! ✨`;
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    window.location.href = url;
   };
 
   async function finalizarVenta() {
     if (carrito.length === 0) return;
+    const metodo = window.prompt("Seleccione Método de Pago:\n1. Efectivo\n2. Transferencia\n3. Tarjeta", "Efectivo");
+    if (!metodo) return;
+    let metodoTxt = metodo === "1" ? "Efectivo" : metodo === "2" ? "Transferencia" : metodo === "3" ? "Tarjeta" : metodo;
     const totalV = carrito.reduce((a, b) => a + b.precio, 0);
     const costoV = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
     try {
       const { error: errV } = await supabase.from('ventas').insert([{ 
-        total: totalV, costo_total: costoV, detalles: carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
+        total: totalV, costo_total: costoV, detalles: `${metodoTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
       }]);
       if (errV) throw errV;
       for (const item of carritoAgrupado) {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
-      if (window.confirm("✅ Venta Guardada. ¿WhatsApp?")) enviarWhatsapp(carritoAgrupado, totalV);
-      setCarrito([]); obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error al procesar"); }
+      if (window.confirm("✅ Venta Guardada. ¿WhatsApp?")) {
+        enviarWhatsapp(carritoAgrupado, totalV, metodoTxt);
+      }
+      setCarrito([]); await obtenerTodo(); setVista('historial');
+    } catch (e) { alert("Error en conexión"); }
   }
 
   async function guardarTurbo(e) {
@@ -104,13 +114,13 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v12.7 FIXED</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.0 VERIFIED</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
+            <input placeholder="🔍 Buscar prenda..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               {inventarioReal.filter(p => p.stockActual > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={card}>
@@ -139,7 +149,7 @@ export default function App() {
                 </div>
               </div>
             ))}
-            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>FINALIZAR ✅</button>}
+            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>PAGAR ✅</button>}
           </>
         )}
 
@@ -152,9 +162,9 @@ export default function App() {
             <form onSubmit={guardarTurbo}>
               <input ref={inputNombreRef} placeholder="Nombre" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...inputS, marginBottom:'10px'}} required />
               <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputS} required />
-                <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
-                <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
+                <input type="number" placeholder="Cost" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputS} required />
+                <input type="number" placeholder="Vent" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
+                <input type="number" placeholder="Stock" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
               </div>
               <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold'}}>REGISTRAR ⚡</button>
             </form>
@@ -164,33 +174,18 @@ export default function App() {
         {vista === 'historial' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <p style={{margin:0, color:'#10b981', fontSize:'11px'}}>UTILIDAD NETA HOY</p>
+              <p style={{margin:0, color:'#10b981', fontSize:'11px'}}>UTILIDAD HOY</p>
               <h2 style={{fontSize:'45px', margin:'5px 0'}}>${utilidadNeta}</h2>
             </div>
             <div style={card}>
               <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
-                <input placeholder="Gasto (Ej. Luz)" value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
+                <input placeholder="Gasto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
                 <input type="number" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
                 <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
               </form>
             </div>
-            <div style={card}>
-              <h3 style={{fontSize:'12px', marginBottom:'10px'}}>📊 PROVEEDORES</h3>
-              <table style={{width:'100%', fontSize:'12px'}}>
-                <tbody>
-                  {Object.entries(inventario.reduce((acc, p) => {
-                    const k = p.proveedor || 'S/P';
-                    if(!acc[k]) acc[k] = {s:0, i:0};
-                    acc[k].s += p.stock; acc[k].i += (p.stock * p.costo_unitario);
-                    return acc;
-                  }, {})).map(([n, d]) => (
-                    <tr key={n} style={{borderTop:'1px solid #f1f5f9'}}><td style={{padding:'5px 0'}}>{n}</td><td>{d.s} pzs</td><td>${d.i}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
             <button onClick={() => {
-              const f = window.prompt(`Arqueo: Esperado $${totalVendido - totalGastos}`);
+              const f = window.prompt(`Arqueo esperado: $${totalVendido - totalGastos}`);
               if(f) alert(`Diferencia: $${Number(f) - (totalVendido - totalGastos)}`);
             }} style={{width:'100%', padding:'15px', background:'#0f172a', color:'#fff', border:'none', borderRadius:'12px', fontWeight:'bold'}}>ARQUEO 🏁</button>
           </>
