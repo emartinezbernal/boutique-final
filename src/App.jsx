@@ -13,6 +13,7 @@ export default function App() {
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
+  // El calendario inicia con la fecha local actual
   const [fechaConsulta, setFechaConsulta] = useState(new Date().toISOString().split('T')[0]);
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
@@ -47,15 +48,22 @@ export default function App() {
     });
   }, [inventario, carrito]);
 
-  // Lógica de Estadísticas por Fecha Seleccionada
+  // Lógica de Filtrado Estricto por Fecha (Corte Diario)
   const statsDia = useMemo(() => {
-    const f = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
-    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === f);
-    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === f);
+    // Normalizamos la fecha seleccionada para comparar
+    const fechaFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
+    
+    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fechaFiltro);
+    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fechaFiltro);
+    
     const totalV = vnt.reduce((a, b) => a + (b.total || 0), 0);
     const totalC = vnt.reduce((a, b) => a + (b.costo_total || 0), 0);
     const totalG = gst.reduce((a, b) => a + Number(b.monto || 0), 0);
-    return { totalV, utilidad: totalV - totalC - totalG };
+    
+    return { 
+      totalV, 
+      utilidad: totalV - totalC - totalG 
+    };
   }, [historial, gastos, fechaConsulta]);
 
   const statsProveedores = useMemo(() => {
@@ -64,8 +72,8 @@ export default function App() {
       const prov = p.proveedor || 'Sin Nombre';
       if (!stats[prov]) stats[prov] = { stock: 0, inversion: 0, ventaEsperada: 0 };
       stats[prov].stock += p.stock;
-      stats[prov].inversion += (p.stock * p.costo_unitario);
-      stats[prov].ventaEsperada += (p.stock * p.precio);
+      stats[prov].inversion += (p.stock * (p.costo_unitario || 0));
+      stats[prov].ventaEsperada += (p.stock * (p.precio || 0));
     });
     return Object.entries(stats);
   }, [inventario]);
@@ -92,8 +100,8 @@ export default function App() {
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
       if (window.confirm(`Venta: $${tv.toFixed(2)}. ¿WhatsApp?`)) enviarWhatsapp(carritoAgrupado, tv, mTxt);
-      setCarrito([]); obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error"); }
+      setCarrito([]); await obtenerTodo(); setVista('historial');
+    } catch (e) { alert("Error al procesar"); }
   }
 
   async function guardarTurbo(e) {
@@ -117,7 +125,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.4 FINAL</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.5 CORTE</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -177,10 +185,11 @@ export default function App() {
         {vista === 'historial' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'none', color:'#fff', border:'1px solid #334155', padding:'5px', borderRadius:'8px', marginBottom:'10px'}} />
+              <label style={{fontSize:'10px', display:'block', marginBottom:'5px', color:'#94a3b8'}}>CONSULTAR FECHA:</label>
+              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'1px solid #334155', padding:'8px', borderRadius:'8px', marginBottom:'10px', textAlign:'center'}} />
               <div style={{display:'flex', justifyContent:'space-around', marginTop:'5px'}}>
                 <div>
-                  <p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA DEL DÍA</p>
+                  <p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA BRUTA</p>
                   <h3 style={{margin:0}}>${statsDia.totalV.toFixed(2)}</h3>
                 </div>
                 <div>
@@ -190,7 +199,7 @@ export default function App() {
               </div>
             </div>
             <div style={card}>
-              <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO POR PROVEEDOR</h3>
+              <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO GLOBAL POR PROVEEDOR</h3>
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%', fontSize:'12px', textAlign:'left', borderCollapse:'collapse'}}>
                   <thead>
@@ -216,7 +225,7 @@ export default function App() {
             </div>
             <div style={card}>
               <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
-                <input placeholder="Gasto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
+                <input placeholder="Gasto de hoy..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
                 <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
                 <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
               </form>
