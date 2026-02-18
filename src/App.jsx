@@ -54,6 +54,19 @@ export default function App() {
   const totalGastos = gastosHoy.reduce((a, b) => a + Number(b.monto || 0), 0);
   const utilidadNeta = totalVendido - totalCosto - totalGastos;
 
+  // ESTADÍSTICA POR PROVEEDOR
+  const statsProveedores = useMemo(() => {
+    const stats = {};
+    inventario.forEach(p => {
+      const prov = p.proveedor || 'Sin Nombre';
+      if (!stats[prov]) stats[prov] = { stock: 0, inversion: 0, ventaEsperada: 0 };
+      stats[prov].stock += p.stock;
+      stats[prov].inversion += (p.stock * p.costo_unitario);
+      stats[prov].ventaEsperada += (p.stock * p.precio);
+    });
+    return Object.entries(stats);
+  }, [inventario]);
+
   const enviarWhatsapp = (detalles, total, metodo) => {
     let msg = `*🛍️ RECIBO PACA PRO*\n📅 ${new Date().toLocaleDateString()}\n`;
     msg += `--------------------------\n`;
@@ -90,7 +103,7 @@ export default function App() {
 
   async function guardarGasto(e) {
     e.preventDefault();
-    await supabase.from('gastos').insert([{ concepto: nuevoGasto.concept, monto: Number(nuevoGasto.monto) }]);
+    await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto) }]);
     setNuevoGasto({ concepto: '', monto: '' });
     obtenerTodo();
   }
@@ -101,7 +114,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.2 FINAL</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.3 STATS+</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -136,7 +149,7 @@ export default function App() {
                 </div>
               </div>
             ))}
-            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>PAGAR ✅</button>}
+            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>COBRAR ✅</button>}
           </>
         )}
 
@@ -161,8 +174,33 @@ export default function App() {
         {vista === 'historial' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <p style={{margin:0, color:'#10b981', fontSize:'11px'}}>UTILIDAD HOY</p>
+              <p style={{margin:0, color:'#10b981', fontSize:'11px'}}>UTILIDAD NETA HOY</p>
               <h2 style={{fontSize:'45px', margin:'5px 0'}}>${utilidadNeta.toFixed(2)}</h2>
+            </div>
+            <div style={card}>
+              <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO POR PROVEEDOR</h3>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%', fontSize:'12px', textAlign:'left', borderCollapse:'collapse'}}>
+                  <thead>
+                    <tr style={{borderBottom:'2px solid #f1f5f9', color:'#64748b'}}>
+                      <th style={{padding:'8px 0'}}>Prov.</th>
+                      <th>Stock</th>
+                      <th>Inversión</th>
+                      <th>Venta Est.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statsProveedores.map(([nombre, s]) => (
+                      <tr key={nombre} style={{borderBottom:'1px solid #f1f5f9'}}>
+                        <td style={{padding:'10px 0'}}><b>{nombre}</b></td>
+                        <td>{s.stock} pzs</td>
+                        <td>${s.inversion.toFixed(2)}</td>
+                        <td style={{color:'#10b981'}}><b>${s.ventaEsperada.toFixed(2)}</b></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div style={card}>
               <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
