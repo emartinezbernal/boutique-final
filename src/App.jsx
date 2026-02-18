@@ -47,6 +47,7 @@ export default function App() {
     });
   }, [inventario, carrito]);
 
+  // Lógica de Filtrado Estricto por Fecha
   const statsDia = useMemo(() => {
     const fechaFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
     const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fechaFiltro);
@@ -57,6 +58,7 @@ export default function App() {
     return { totalV, totalG, utilidad: totalV - totalC - totalG, ventasCount: vnt.length };
   }, [historial, gastos, fechaConsulta]);
 
+  // Estadística Completa de Proveedores
   const statsProveedores = useMemo(() => {
     const stats = {};
     inventario.forEach(p => {
@@ -104,13 +106,23 @@ export default function App() {
     const tv = carrito.reduce((a, b) => a + b.precio, 0);
     const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
     try {
-      await supabase.from('ventas').insert([{ total: tv, costo_total: cv, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
+      const { error: errV } = await supabase.from('ventas').insert([{ 
+        total: tv, costo_total: cv, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
+      }]);
+      if (errV) throw errV;
+
       for (const item of carritoAgrupado) {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
+      
+      let msg = `*🛍️ RECIBO PACA PRO*\n📅 ${new Date().toLocaleDateString()}\n--------------------------\n`;
+      carritoAgrupado.forEach(i => { msg += `• ${i.nombre} (x${i.cantCar}): *$${i.subtotal.toFixed(2)}*\n`; });
+      msg += `--------------------------\n*PAGO:* ${mTxt.toUpperCase()}\n*TOTAL: $${tv.toFixed(2)}*\n--------------------------\n¡Gracias! ✨`;
+      
+      if (window.confirm(`Venta: $${tv.toFixed(2)}. ¿Enviar recibo por WhatsApp?`)) enviarWhatsapp(msg);
       setCarrito([]); await obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error"); }
+    } catch (e) { alert("Error al procesar la venta"); }
   }
 
   async function guardarTurbo(e) {
@@ -134,7 +146,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.6 MASTER</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.7 TOTAL</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -194,27 +206,50 @@ export default function App() {
         {vista === 'historial' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'8px', borderRadius:'8px', marginBottom:'10px'}} />
-              <div style={{display:'flex', justifyContent:'space-around'}}>
-                <div><p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA</p><h3>${statsDia.totalV.toFixed(2)}</h3></div>
-                <div><p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD</p><h3>${statsDia.utilidad.toFixed(2)}</h3></div>
+              <label style={{fontSize:'10px', display:'block', marginBottom:'5px', color:'#94a3b8'}}>CONSULTAR FECHA:</label>
+              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'1px solid #334155', padding:'8px', borderRadius:'8px', marginBottom:'10px', textAlign:'center'}} />
+              <div style={{display:'flex', justifyContent:'space-around', marginTop:'5px'}}>
+                <div>
+                  <p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA BRUTA</p>
+                  <h3 style={{margin:0}}>${statsDia.totalV.toFixed(2)}</h3>
+                </div>
+                <div>
+                  <p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD NETA</p>
+                  <h3 style={{margin:0}}>${statsDia.utilidad.toFixed(2)}</h3>
+                </div>
               </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
+              <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
             </div>
 
             <div style={card}>
-              <h3 style={{fontSize:'12px', margin:'0 0 10px 0', color:'#64748b'}}>INVENTARIO POR PROVEEDOR</h3>
-              {statsProveedores.map(([nombre, s]) => (
-                <div key={nombre} style={{display:'flex', justifyContent:'space-between', fontSize:'12px', padding:'5px 0', borderBottom:'1px solid #f1f5f9'}}>
-                  <span><b>{nombre}</b> ({s.stock} pzs)</span>
-                  <span style={{color:'#10b981'}}>${s.ventaEsperada.toFixed(2)}</span>
-                </div>
-              ))}
+              <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO GLOBAL POR PROVEEDOR</h3>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%', fontSize:'12px', textAlign:'left', borderCollapse:'collapse'}}>
+                  <thead>
+                    <tr style={{borderBottom:'2px solid #f1f5f9', color:'#64748b'}}>
+                      <th style={{padding:'8px 0'}}>Prov.</th>
+                      <th>Stock</th>
+                      <th>Inversión</th>
+                      <th>Venta Est.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statsProveedores.map(([nombre, s]) => (
+                      <tr key={nombre} style={{borderBottom:'1px solid #f1f5f9'}}>
+                        <td style={{padding:'10px 0'}}><b>{nombre}</b></td>
+                        <td>{s.stock} pzs</td>
+                        <td>${s.inversion.toFixed(2)}</td>
+                        <td style={{color:'#10b981'}}><b>${s.ventaEsperada.toFixed(2)}</b></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div style={card}>
               <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
-                <input placeholder="Gasto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
+                <input placeholder="Gasto de hoy..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
                 <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
                 <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
               </form>
