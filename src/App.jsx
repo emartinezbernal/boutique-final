@@ -13,13 +13,18 @@ export default function App() {
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
+  const [cortes, setCortes] = useState([]);
   const [fechaConsulta, setFechaConsulta] = useState(new Date().toISOString().split('T')[0]);
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
   const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
   const inputNombreRef = useRef(null);
 
-  useEffect(() => { obtenerTodo(); }, []);
+  useEffect(() => { 
+    obtenerTodo(); 
+    const cortesGuardados = localStorage.getItem('cortesPacaPro');
+    if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
+  }, []);
 
   async function obtenerTodo() {
     const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
@@ -47,7 +52,6 @@ export default function App() {
     });
   }, [inventario, carrito]);
 
-  // Lógica de Filtrado Estricto por Fecha
   const statsDia = useMemo(() => {
     const fechaFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
     const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fechaFiltro);
@@ -58,7 +62,6 @@ export default function App() {
     return { totalV, totalG, utilidad: totalV - totalC - totalG, ventasCount: vnt.length };
   }, [historial, gastos, fechaConsulta]);
 
-  // Estadística Completa de Proveedores
   const statsProveedores = useMemo(() => {
     const stats = {};
     inventario.forEach(p => {
@@ -71,6 +74,12 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
+  // Busca el último corte registrado para la fecha consultada
+  const corteDelDia = useMemo(() => {
+    const cortesFiltrados = cortes.filter(c => c.fechaFiltro === fechaConsulta);
+    return cortesFiltrados.length > 0 ? cortesFiltrados[cortesFiltrados.length - 1] : null;
+  }, [cortes, fechaConsulta]);
+
   const enviarWhatsapp = (msg) => {
     window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
   };
@@ -82,6 +91,20 @@ export default function App() {
     const esperado = statsDia.totalV - statsDia.totalG;
     const dif = fisico - esperado;
     
+    // Guardar el corte localmente
+    const nuevoCorte = {
+      id: Date.now(),
+      fechaFiltro: fechaConsulta,
+      timestamp: new Date().toLocaleString(),
+      reportado: fisico,
+      diferencia: dif,
+      esperado: esperado
+    };
+    
+    const nuevosCortes = [...cortes, nuevoCorte];
+    setCortes(nuevosCortes);
+    localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
+
     let msg = `*🏁 CORTE DE CAJA - PACA PRO*\n📅 Fecha: ${fechaConsulta}\n`;
     msg += `--------------------------\n`;
     msg += `💰 Venta Bruta: $${statsDia.totalV.toFixed(2)}\n`;
@@ -93,7 +116,7 @@ export default function App() {
     msg += `📦 Ventas Realizadas: ${statsDia.ventasCount}\n`;
     msg += `--------------------------\nReporte generado automáticamente.`;
     
-    if (window.confirm("¿Enviar reporte de corte por WhatsApp?")) {
+    if (window.confirm("Corte registrado con éxito. ¿Enviar reporte por WhatsApp?")) {
       enviarWhatsapp(msg);
     }
   };
@@ -146,7 +169,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.7 TOTAL</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.8 TICKET</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -220,6 +243,18 @@ export default function App() {
               </div>
               <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
             </div>
+
+            {/* SECCIÓN NUEVA: MOSTRAR DETALLES DEL ÚLTIMO CORTE DEL DÍA */}
+            {corteDelDia && (
+              <div style={{...card, borderLeft:'5px solid #10b981', backgroundColor:'#ecfdf5'}}>
+                <h3 style={{fontSize:'13px', margin:'0 0 8px 0', color:'#065f46'}}>✅ CORTE REGISTRADO</h3>
+                <p style={{margin:0, fontSize:'13px', color:'#047857'}}>
+                  <b>Fecha y Hora:</b> {corteDelDia.timestamp} <br/>
+                  <b>Monto Reportado:</b> ${corteDelDia.reportado.toFixed(2)} <br/>
+                  <b>Diferencia:</b> <span style={{color: corteDelDia.diferencia < 0 ? '#ef4444' : '#10b981', fontWeight:'bold'}}>${corteDelDia.diferencia.toFixed(2)}</span>
+                </p>
+              </div>
+            )}
 
             <div style={card}>
               <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO GLOBAL POR PROVEEDOR</h3>
