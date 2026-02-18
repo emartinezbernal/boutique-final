@@ -27,6 +27,7 @@ export default function App() {
     if (resV.data) setHistorial(resV.data);
   }
 
+  // --- MÉTRICAS Y FILTROS ---
   const ventasFiltradas = historial.filter(v => {
     const fechaVenta = new Date(v.created_at);
     const hoy = new Date();
@@ -37,6 +38,10 @@ export default function App() {
     }
     return true;
   });
+
+  const totalVendidoHoy = ventasFiltradas.reduce((a, b) => a + (b.total || 0), 0);
+  const totalCostoHoy = ventasFiltradas.reduce((a, b) => a + (b.costo_total || 0), 0);
+  const gananciaHoy = totalVendidoHoy - totalCostoHoy;
 
   const rendimientoProveedores = useMemo(() => {
     const stats = {};
@@ -49,6 +54,32 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
+  // --- LÓGICA DE CIERRE DE DÍA ---
+  const ejecutarCierreCaja = () => {
+    const fisico = window.prompt(`💰 CIERRE DE CAJA - ${new Date().toLocaleDateString()}\n\nEsperado en caja: $${totalVendidoHoy}\n\nIngresa el dinero en EFECTIVO que tienes físicamente:`);
+    
+    if (fisico !== null) {
+      const montoFisico = parseFloat(fisico);
+      const diferencia = montoFisico - totalVendidoHoy;
+      
+      let mensaje = `--- 🏁 RESUMEN DE CIERRE ---\n\n`;
+      mensaje += `✅ Ventas del día: $${totalVendidoHoy}\n`;
+      mensaje += `💵 Efectivo contado: $${montoFisico}\n`;
+      
+      if (diferencia === 0) mensaje += `✨ ¡Caja perfecta! No falta nada.`;
+      else if (diferencia > 0) mensaje += `🔼 Sobrante: $${diferencia}`;
+      else mensaje += `🔻 Faltante: $${Math.abs(diferencia)}`;
+
+      mensaje += `\n\n📈 Utilidad neta de hoy: $${gananciaHoy}`;
+
+      window.alert(mensaje);
+      if (window.confirm("¿Deseas copiar el reporte de cierre para enviarlo por mensaje?")) {
+        navigator.clipboard.writeText(mensaje);
+      }
+    }
+  };
+
+  // --- ACCIONES DE VENTA Y CARGA ---
   async function guardarTurbo(e) {
     if(e) e.preventDefault();
     if (!infoPaca.numero || !infoPaca.proveedor) return window.alert("⚠️ Indica Paca y Proveedor.");
@@ -87,140 +118,105 @@ export default function App() {
   return (
     <div style={{ fontFamily: '"Inter", sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh', color: '#1e293b' }}>
       
-      {/* HEADER FIJO */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#0f172a', padding: '16px', textAlign: 'center', color: 'white', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}>
-        <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800', letterSpacing: '1px' }}>PACA PRO <span style={{color:'#10b981'}}>v11.3</span></h1>
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#0f172a', padding: '16px', textAlign: 'center', color: 'white' }}>
+        <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>PACA PRO <span style={{color:'#10b981'}}>v11.4 FINAL</span></h1>
       </header>
 
       <main style={{ padding: '16px', maxWidth: '500px', margin: '0 auto', paddingBottom: '100px' }}>
         
-        {/* VISTA CATÁLOGO (PRENDAS EN TARJETAS) */}
+        {/* CATÁLOGO */}
         {vista === 'catalogo' && (
           <div>
-            <div style={{ position: 'sticky', top: '70px', zIndex: 5, backgroundColor: '#f8fafc', paddingBottom: '10px' }}>
-              <input type="text" placeholder="🔍 Buscar por nombre de prenda..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{ ...inputStyle, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }} />
-            </div>
+            <input type="text" placeholder="🔍 Buscar prenda..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{ ...inputStyle, marginBottom:'15px' }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               {inventario.filter(p => p.stock > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
-                <div key={p.id} style={{ ...cardStyle, marginBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <div style={{ overflow: 'hidden' }}>
-                    <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginBottom: '8px' }}>Paca: {p.paca}</span>
-                    <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', wordBreak: 'break-word', minHeight: '34px', lineHeight: '1.2' }}>{p.nombre}</h3>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#0f172a' }}>${p.precio}</p>
-                    <button onClick={()=>setCarrito([...carrito, p])} style={{ width: '100%', padding: '10px', background: '#0f172a', color: '#10b981', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}>VENDER</button>
-                  </div>
+                <div key={p.id} style={{ ...cardStyle, marginBottom: 0 }}>
+                  <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>Paca: {p.paca}</span>
+                  <h3 style={{ margin: '8px 0', fontSize: '14px', wordBreak: 'break-word', height: '34px' }}>{p.nombre}</h3>
+                  <p style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0' }}>${p.precio}</p>
+                  <button onClick={()=>setCarrito([...carrito, p])} style={{ width: '100%', padding: '10px', background: '#0f172a', color: '#10b981', border: 'none', borderRadius: '8px', fontWeight: '700' }}>VENDER</button>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* VISTA ADMIN (REGISTRO TURBO) */}
+        {/* ADMIN */}
         {vista === 'admin' && (
           <div style={cardStyle}>
-            <h2 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '16px', color: '#475569' }}>📦 NUEVO LOTE DE MERCANCÍA</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-              <div>
-                <label style={{fontSize:'10px', fontWeight:'700', color:'#94a3b8'}}>NÚMERO DE PACA</label>
-                <input placeholder="Ej: 001" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={{...inputStyle, marginTop:'4px'}}/>
-              </div>
-              <div>
-                <label style={{fontSize:'10px', fontWeight:'700', color:'#94a3b8'}}>PROVEEDOR</label>
-                <input placeholder="Ej: USA Balas" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={{...inputStyle, marginTop:'4px'}}/>
-              </div>
+            <h2 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '12px' }}>⚡ REGISTRO TURBO</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputStyle}/>
+              <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputStyle}/>
             </div>
-            <form onSubmit={guardarTurbo} style={{ borderTop: '1px solid #f1f5f9', paddingTop: '20px' }}>
-              <div style={{marginBottom:'12px'}}>
-                <label style={{fontSize:'10px', fontWeight:'700', color:'#94a3b8'}}>PRENDA</label>
-                <input ref={inputNombreRef} placeholder="Ej: Sudadera Nike XL" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...inputStyle, marginTop:'4px'}} required />
+            <form onSubmit={guardarTurbo}>
+              <input ref={inputNombreRef} placeholder="Nombre de prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...inputStyle, marginBottom:'10px'}} required />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '15px' }}>
+                <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputStyle} required />
+                <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputStyle} required />
+                <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputStyle} required />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-                <div><label style={{fontSize:'10px'}}>COSTO</label><input type="number" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputStyle} required /></div>
-                <div><label style={{fontSize:'10px'}}>VENTA</label><input type="number" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputStyle} required /></div>
-                <div><label style={{fontSize:'10px'}}>CANT</label><input type="number" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputStyle} required /></div>
-              </div>
-              <button type="submit" style={{ width: '100%', padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '800', fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}>REGISTRAR PRENDA ⚡</button>
+              <button type="submit" style={{ width: '100%', padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '800' }}>REGISTRAR PRENDA</button>
             </form>
           </div>
         )}
 
-        {/* VISTA REPORTES (RENDIMIENTO) */}
+        {/* REPORTES Y CIERRE */}
         {vista === 'historial' && (
           <div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               {['hoy', 'ayer'].map(f => (
-                <button key={f} onClick={() => setFiltroFecha(f)} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: filtroFecha === f ? '#0f172a' : 'white', color: filtroFecha === f ? '#10b981' : '#64748b', fontWeight: '700', fontSize: '12px' }}>{f.toUpperCase()}</button>
+                <button key={f} onClick={() => setFiltroFecha(f)} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: filtroFecha === f ? '#0f172a' : 'white', color: filtroFecha === f ? '#10b981' : '#64748b', fontWeight: '700' }}>{f.toUpperCase()}</button>
               ))}
             </div>
-            <div style={{ ...cardStyle, textAlign: 'center', padding: '30px' }}>
-              <p style={{ margin: 0, fontSize: '12px', color: '#64748b', fontWeight: '600' }}>UTILIDAD NETA ESTIMADA</p>
-              <h2 style={{ fontSize: '48px', margin: '10px 0', color: '#10b981', fontWeight: '900' }}>${ventasFiltradas.reduce((a,b)=>a+(b.total-b.costo_total), 0)}</h2>
+            
+            <div style={{ ...cardStyle, textAlign: 'center', background: '#fff' }}>
+              <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>UTILIDAD {filtroFecha.toUpperCase()}</p>
+              <h2 style={{ fontSize: '42px', margin: '5px 0', color: '#10b981', fontWeight: '900' }}>${gananciaHoy}</h2>
+              <button onClick={ejecutarCierreCaja} style={{ marginTop: '15px', background: '#0f172a', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>🏁 CERRAR DÍA</button>
             </div>
+
             <div style={cardStyle}>
-              <h3 style={{ fontSize: '14px', marginBottom: '16px', fontWeight: '700' }}>📊 RENDIMIENTO POR PROVEEDOR</h3>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ color: '#94a3b8', fontSize: '10px', borderBottom: '1px solid #f1f5f9' }}>
-                      <th style={{ padding: '8px' }}>PROVEEDOR</th>
-                      <th style={{ padding: '8px' }}>STOCK</th>
-                      <th style={{ padding: '8px' }}>INVERSIÓN</th>
+              <h3 style={{ fontSize: '14px', marginBottom: '12px' }}>📊 RENDIMIENTO PROVEEDORES</h3>
+              <table style={{ width: '100%', fontSize: '12px', textAlign: 'left' }}>
+                <thead><tr style={{color:'#94a3b8'}}><th>PROVEEDOR</th><th>STOCK</th><th>INVERSIÓN</th></tr></thead>
+                <tbody>
+                  {rendimientoProveedores.map(([name, data]) => (
+                    <tr key={name} style={{ borderTop: '1px solid #f8fafc' }}>
+                      <td style={{ padding: '10px 0', fontWeight: 'bold' }}>{name}</td>
+                      <td>{data.stock} pzs</td>
+                      <td>${data.invertido.toLocaleString()}</td>
                     </tr>
-                  </thead>
-                  <tbody style={{ fontSize: '13px' }}>
-                    {rendimientoProveedores.map(([name, data]) => (
-                      <tr key={name} style={{ borderBottom: '1px solid #f8fafc' }}>
-                        <td style={{ padding: '12px 8px', fontWeight: '600', color: '#334155' }}>{name}</td>
-                        <td style={{ padding: '12px 8px' }}>{data.stock} pzs</td>
-                        <td style={{ padding: '12px 8px', fontWeight: '700' }}>${data.invertido.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
 
-        {/* VISTA POS (CARRITO) */}
+        {/* CARRITO */}
         {vista === 'pos' && (
           <div>
-            <div style={{ ...cardStyle, background: '#0f172a', color: 'white', textAlign: 'center', padding: '30px' }}>
-              <p style={{ margin: 0, fontSize: '12px', color: '#10b981', fontWeight: '700' }}>TOTAL A COBRAR</p>
-              <h2 style={{ fontSize: '56px', margin: '5px 0', fontWeight: '900' }}>${carrito.reduce((a,b)=>a+b.precio, 0)}</h2>
-              <p style={{ margin: 0, fontSize: '11px', opacity: 0.6 }}>{carrito.length} artículos en el carrito</p>
+            <div style={{ ...cardStyle, background: '#0f172a', color: 'white', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontSize: '11px', color: '#10b981' }}>TOTAL CARRITO</p>
+              <h2 style={{ fontSize: '48px', margin: '5px 0' }}>${carrito.reduce((a,b)=>a+b.precio, 0)}</h2>
             </div>
             {carrito.map((item, i) => (
-              <div key={i} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px' }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontWeight: '700', fontSize: '14px', wordBreak: 'break-word' }}>{item.nombre}</p>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>Paca {item.paca} • ${item.precio}</p>
-                </div>
-                <button onClick={()=>{const c=[...carrito]; c.splice(i,1); setCarrito(c);}} style={{ background: '#fee2e2', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+              <div key={i} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div><p style={{ margin: 0, fontWeight: '700' }}>{item.nombre}</p><p style={{ margin: 0, fontSize: '11px' }}>Paca {item.paca}</p></div>
+                <button onClick={()=>{const c=[...carrito]; c.splice(i,1); setCarrito(c);}} style={{ background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', padding: '8px' }}>✕</button>
               </div>
             ))}
-            {carrito.length > 0 && (
-              <button onClick={finalizarVenta} style={{ width: '100%', padding: '20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '16px', fontWeight: '900', fontSize: '16px', boxShadow: '0 10px 15px -3px rgba(16, 185, 129, 0.3)', cursor: 'pointer' }}>FINALIZAR VENTA ✅</button>
-            )}
+            {carrito.length > 0 && <button onClick={finalizarVenta} style={{ width: '100%', padding: '20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '16px', fontWeight: '900', fontSize: '16px' }}>FINALIZAR VENTA ✅</button>}
           </div>
         )}
       </main>
 
-      {/* NAVBAR INFERIOR PROFESIONAL */}
-      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
-        {[
-          { v: 'catalogo', i: '📦' },
-          { v: 'pos', i: '🛒', count: carrito.length },
-          { v: 'admin', i: '⚡' },
-          { v: 'historial', i: '📈' }
-        ].map(btn => (
-          <button key={btn.v} onClick={()=>setVista(btn.v)} style={{ border:'none', background:'none', fontSize:'24px', cursor:'pointer', position:'relative', padding: '8px 16px', borderRadius: '12px', transition: '0.2s', backgroundColor: vista === btn.v ? 'rgba(16, 185, 129, 0.2)' : 'transparent' }}>
-            {btn.i}
-            {btn.count > 0 && <span style={{ position: 'absolute', top: '2px', right: '8px', background: '#ef4444', color: 'white', borderRadius: '50%', width: '18px', height: '18px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{btn.count}</span>}
-          </button>
-        ))}
+      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px' }}>
+        <button onClick={()=>setVista('catalogo')} style={{ border:'none', background: vista === 'catalogo' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px' }}>📦</button>
+        <button onClick={()=>setVista('pos')} style={{ border:'none', background: vista === 'pos' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative' }}>🛒 {carrito.length > 0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'white', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
+        <button onClick={()=>setVista('admin')} style={{ border:'none', background: vista === 'admin' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px' }}>⚡</button>
+        <button onClick={()=>setVista('historial')} style={{ border:'none', background: vista === 'historial' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px' }}>📈</button>
       </nav>
     </div>
   );
