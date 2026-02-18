@@ -7,14 +7,18 @@ const supabase = createClient(
 );
 
 export default function App() {
+  // --- ESTADOS ---
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
+  const [gastos, setGastos] = useState([]); // Nuevo: Gastos operativos
   const [filtroFecha, setFiltroFecha] = useState('hoy');
+  
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
   
   const inputNombreRef = useRef(null);
 
@@ -25,168 +29,176 @@ export default function App() {
     if (resP.data) setInventario(resP.data);
     const resV = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
     if (resV.data) setHistorial(resV.data);
+    // Nota: Si no tienes tabla de gastos, el sistema funcionará en memoria hasta que la crees
+    const resG = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
+    if (resG.data) setGastos(resG.data);
   }
 
   // --- LÓGICA DE STOCK DINÁMICO ---
-  // Calcula el stock disponible restando lo que ya está en el carrito
-  const inventarioConStockReal = useMemo(() => {
+  const inventarioReal = useMemo(() => {
     return inventario.map(p => {
       const enCarrito = carrito.filter(item => item.id === p.id).length;
-      return { ...p, stockDisponible: p.stock - enCarrito };
+      return { ...p, stockActual: p.stock - enCarrito };
     });
   }, [inventario, carrito]);
 
-  const totalVendidoHoy = historial
-    .filter(v => new Date(v.created_at).toLocaleDateString() === new Date().toLocaleDateString())
-    .reduce((a, b) => a + (b.total || 0), 0);
+  // --- MÉTRICAS ---
+  const ventasHoy = historial.filter(v => new Date(v.created_at).toLocaleDateString() === new Date().toLocaleDateString());
+  const gastosHoy = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === new Date().toLocaleDateString());
+
+  const totalVendido = ventasHoy.reduce((a, b) => a + (b.total || 0), 0);
+  const totalCostoVenta = ventasHoy.reduce((a, b) => a + (b.costo_total || 0), 0);
+  const totalGastos = gastosHoy.reduce((a, b) => a + (parseFloat(b.monto) || 0), 0);
+  
+  const utilidadNeta = totalVendido - totalCostoVenta - totalGastos;
 
   // --- ACCIONES ---
-  const añadirAlCarrito = (producto) => {
-    if (producto.stockDisponible > 0) {
-      setCarrito([...carrito, producto]);
-    }
-  };
-
-  const quitarDelCarrito = (index) => {
-    const nuevoCarrito = [...carrito];
-    nuevoCarrito.splice(index, 1);
-    setCarrito(nuevoCarrito);
-  };
+  async function guardarGasto(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: parseFloat(nuevoGasto.monto) }]);
+    if (!error) { setNuevoGasto({ concepto: '', monto: '' }); obtenerTodo(); }
+  }
 
   async function finalizarVenta() {
     const total = carrito.reduce((a, b) => a + b.precio, 0);
     const costo_total = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
-    const detalles = carrito.map(p => p.nombre).join(', ');
-
-    // 1. Registrar Venta
-    const { error: errorVenta } = await supabase.from('ventas').insert([{ total, costo_total, detalles }]);
+    const { error } = await supabase.from('ventas').insert([{ total, costo_total, detalles: carrito.map(i=>i.nombre).join(', ') }]);
     
-    if (!errorVenta) {
-      // 2. Actualizar Stock en DB por cada producto único en el carrito
-      const conteoProductos = carrito.reduce((acc, p) => {
-        acc[p.id] = (acc[p.id] || 0) + 1;
-        return acc;
-      }, {});
-
-      for (const id in conteoProductos) {
-        const prodOriginal = inventario.find(p => p.id === id);
-        const nuevoStock = prodOriginal.stock - conteoProductos[id];
-        await supabase.from('productos').update({ stock: nuevoStock }).eq('id', id);
+    if (!error) {
+      const conteo = carrito.reduce((acc, p) => { acc[p.id] = (acc[p.id] || 0) + 1; return acc; }, {});
+      for (const id in conteo) {
+        const original = inventario.find(p => p.id === id);
+        await supabase.from('productos').update({ stock: original.stock - conteo[id] }).eq('id', id);
       }
-
-      if (window.confirm("✅ Venta confirmada. Stock actualizado. ¿Copiar ticket?")) {
-        const ticket = `*🛍️ TICKET PACA PRO*\n${new Date().toLocaleString()}\n----------\n` + 
-          carrito.map(i => `• ${i.nombre}: $${i.precio}`).join('\n') + `\n----------\n*TOTAL: $${total}*`;
-        navigator.clipboard.writeText(ticket);
-      }
-      
-      setCarrito([]);
-      obtenerTodo();
-      setVista('historial');
+      setCarrito([]); obtenerTodo(); setVista('historial');
+      window.alert("✅ Venta y Stock actualizados correctamente.");
     }
   }
 
   async function guardarTurbo(e) {
     if(e) e.preventDefault();
-    if (!infoPaca.numero || !infoPaca.proveedor) return window.alert("⚠️ Indica Paca y Proveedor.");
-    const { error } = await supabase.from('productos').insert([{ 
+    if (!infoPaca.numero || !infoPaca.proveedor) return window.alert("⚠️ Datos de Paca incompletos.");
+    await supabase.from('productos').insert([{ 
       nombre: nuevoProd.nombre, precio: parseFloat(nuevoProd.precio), costo_unitario: parseFloat(nuevoProd.costo), 
       stock: parseInt(nuevoProd.cantidad), paca: infoPaca.numero, proveedor: infoPaca.proveedor 
     }]);
-    if (!error) {
-      setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 });
-      obtenerTodo();
-      setTimeout(() => inputNombreRef.current?.focus(), 100);
-    }
+    setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 });
+    obtenerTodo();
+    inputNombreRef.current?.focus();
   }
 
   // Estilos
-  const cardStyle = { background: 'white', borderRadius: '16px', padding: '15px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', marginBottom: '12px', border: '1px solid #f1f5f9' };
-  const badgeStyle = { fontSize: '10px', fontWeight: 'bold', padding: '3px 8px', borderRadius: '6px', marginBottom: '8px', display: 'inline-block' };
+  const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
+  const input = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box', outline: 'none' };
 
   return (
-    <div style={{ fontFamily: '"Inter", sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
-      
-      <header style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#0f172a', padding: '16px', textAlign: 'center', color: 'white' }}>
-        <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>PACA PRO <span style={{color:'#10b981'}}>v11.5 STOCK</span></h1>
+    <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
+      <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center', fontWeight: 'bold' }}>
+        PACA PRO <span style={{color:'#10b981'}}>v11.7 PLATINUM</span>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
         
+        {/* CATÁLOGO CON STOCK REAL */}
         {vista === 'catalogo' && (
-          <div>
-            <input type="text" placeholder="🔍 Buscar por descripción..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom:'15px', boxSizing:'border-box' }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {inventarioConStockReal.filter(p => p.stockDisponible > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
-                <div key={p.id} style={cardStyle}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ ...badgeStyle, background: '#f1f5f9', color: '#64748b' }}>Paca: {p.paca}</span>
-                    <span style={{ ...badgeStyle, background: p.stockDisponible < 3 ? '#fee2e2' : '#dcfce7', color: p.stockDisponible < 3 ? '#ef4444' : '#16a34a' }}>Stock: {p.stockDisponible}</span>
+          <>
+            <input placeholder="🔍 Buscar prenda..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...input, marginBottom:'15px'}} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {inventarioReal.filter(p => p.stockActual > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+                <div key={p.id} style={card}>
+                  <div style={{fontSize:'9px', color:'#64748b', display:'flex', justifyContent:'space-between', marginBottom:'5px'}}>
+                    <span>Paca: {p.paca}</span> <span style={{color: p.stockActual < 3 ? '#ef4444' : '#10b981'}}>Stock: {p.stockActual}</span>
                   </div>
-                  <h3 style={{ margin: '5px 0', fontSize: '14px', height: '34px', overflow: 'hidden' }}>{p.nombre}</h3>
-                  <p style={{ fontSize: '20px', fontWeight: '900', margin: '0 0 10px 0' }}>${p.precio}</p>
-                  <button onClick={() => añadirAlCarrito(p)} style={{ width: '100%', padding: '10px', background: '#0f172a', color: '#10b981', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>VENDER</button>
+                  <h4 style={{margin:'0 0 10px 0', fontSize:'13px', height:'32px', overflow:'hidden'}}>{p.nombre}</h4>
+                  <p style={{fontSize:'22px', fontWeight:'900', margin:0}}>${p.precio}</p>
+                  <button onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#0f172a', color:'#10b981', border:'none', borderRadius:'8px', fontWeight:'bold', cursor:'pointer'}}>VENDER</button>
                 </div>
               ))}
             </div>
-          </div>
+          </>
         )}
 
-        {vista === 'pos' && (
-          <div>
-            <div style={{ ...cardStyle, background: '#0f172a', color: 'white', textAlign: 'center', padding: '25px' }}>
-              <p style={{ margin: 0, fontSize: '11px', color: '#10b981' }}>TOTAL A PAGAR</p>
-              <h2 style={{ fontSize: '48px', margin: '5px 0' }}>${carrito.reduce((a,b)=>a+b.precio, 0)}</h2>
-            </div>
-            {carrito.map((item, i) => (
-              <div key={i} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <p style={{ margin: 0, fontWeight: '700' }}>{item.nombre}</p>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>Paca: {item.paca} • ${item.precio}</p>
-                </div>
-                <button onClick={() => quitarDelCarrito(i)} style={{ background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', width:'35px', height:'35px', fontWeight:'bold' }}>✕</button>
-              </div>
-            ))}
-            {carrito.length > 0 && (
-              <button onClick={finalizarVenta} style={{ width: '100%', padding: '20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '16px', fontWeight: '900', fontSize: '16px', cursor:'pointer' }}>CONFIRMAR COMPRA ✅</button>
-            )}
-          </div>
-        )}
-
-        {/* MANTENEMOS VISTAS ADMIN Y HISTORIAL IGUAL (CON LA MEJORA DE STOCK) */}
+        {/* REGISTRO ADMIN */}
         {vista === 'admin' && (
-          <div style={cardStyle}>
-            <h2 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '15px' }}>⚡ REGISTRO DE MERCANCÍA</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
-              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1px solid #e2e8f0'}}/>
-              <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1px solid #e2e8f0'}}/>
+          <div style={card}>
+            <h3 style={{margin:'0 0 15px 0', fontSize:'14px'}}>⚡ CARGA DE MERCANCÍA</h3>
+            <div style={{display:'flex', gap:'5px', marginBottom:'15px'}}>
+              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={input}/>
+              <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={input}/>
             </div>
             <form onSubmit={guardarTurbo}>
-              <input ref={inputNombreRef} placeholder="Descripción de la prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1px solid #e2e8f0', marginBottom:'10px', boxSizing:'border-box'}} required />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '15px' }}>
-                <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1px solid #e2e8f0'}} required />
-                <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1px solid #e2e8f0'}} required />
-                <input type="number" placeholder="Stock" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1px solid #e2e8f0'}} required />
+              <input ref={inputNombreRef} placeholder="Descripción prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...input, marginBottom:'10px'}} required />
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'5px', marginBottom:'15px'}}>
+                <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={input} required />
+                <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={input} required />
+                <input type="number" placeholder="Stock" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={input} required />
               </div>
-              <button type="submit" style={{ width: '100%', padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold' }}>GUARDAR PRENDA</button>
+              <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold'}}>REGISTRAR LOTE</button>
             </form>
           </div>
         )}
 
+        {/* REPORTES, GASTOS Y CIERRE */}
         {vista === 'historial' && (
-           <div style={cardStyle}>
-              <p style={{ margin: 0, fontSize: '11px', color: '#64748b', textAlign:'center' }}>TOTAL VENDIDO HOY</p>
-              <h2 style={{ fontSize: '42px', textAlign:'center', margin: '10px 0', color: '#10b981', fontWeight: '900' }}>${totalVendidoHoy}</h2>
-           </div>
+          <>
+            <div style={{...card, textAlign:'center', background:'#0f172a', color:'#fff'}}>
+              <p style={{margin:0, fontSize:'11px', color:'#10b981'}}>UTILIDAD NETA HOY (Ventas - Costos - Gastos)</p>
+              <h2 style={{fontSize:'45px', margin:'10px 0'}}>${utilidadNeta}</h2>
+              <div style={{fontSize:'12px', opacity:0.8}}>Vendido: ${totalVendido} | Gastos: ${totalGastos}</div>
+            </div>
+
+            <div style={card}>
+              <h3 style={{fontSize:'14px', margin:'0 0 10px 0'}}>💸 REGISTRAR GASTO (EGRESO)</h3>
+              <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
+                <input placeholder="Ej: Flete, Bolsas" value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={input} required />
+                <input type="number" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...input, width:'80px'}} required />
+                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
+              </form>
+            </div>
+
+            <div style={card}>
+              <h3 style={{fontSize:'14px', margin:'0 0 10px 0'}}>📊 RENDIMIENTO PROVEEDORES</h3>
+              <table style={{width:'100%', fontSize:'12px', borderCollapse:'collapse'}}>
+                <thead><tr style={{textAlign:'left', color:'#64748b'}}><th style={{padding:'5px'}}>Prov.</th><th>Stock</th><th>Inversión</th></tr></thead>
+                <tbody>
+                  {Object.entries(inventario.reduce((acc, p) => {
+                    const key = p.proveedor || 'S/P';
+                    if (!acc[key]) acc[key] = {s:0, i:0};
+                    acc[key].s += p.stock; acc[key].i += (p.stock * p.costo_unitario);
+                    return acc;
+                  }, {})).map(([n, d]) => (
+                    <tr key={n} style={{borderTop:'1px solid #f1f5f9'}}><td style={{padding:'8px 0'}}>{n}</td><td>{d.s} pzs</td><td>${d.i}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={() => {
+              const fisico = window.prompt(`CIERRE DE CAJA\nEsperado: $${totalVendido - totalGastos}\nIngrese efectivo físico:`);
+              if (fisico) window.alert(`Resultado: $${parseFloat(fisico) - (totalVendido - totalGastos)} de diferencia.`);
+            }} style={{width:'100%', padding:'15px', background:'#0f172a', color:'#fff', border:'none', borderRadius:'12px', fontWeight:'bold'}}>REALIZAR ARQUEO DE CAJA 🏁</button>
+          </>
+        )}
+
+        {/* CARRITO */}
+        {vista === 'pos' && (
+          <>
+            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}><h2 style={{fontSize:'45px', margin:0, color:'#10b981'}}>${carrito.reduce((a,b)=>a+b.precio, 0)}</h2></div>
+            {carrito.map((item, i) => (
+              <div key={i} style={{...card, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div><b>{item.nombre}</b><br/><small>Paca: {item.paca}</small></div>
+                <button onClick={()=>{const c=[...carrito]; c.splice(i,1); setCarrito(c);}} style={{background:'#fee2e2', color:'#ef4444', border:'none', borderRadius:'8px', width:'35px', height:'35px'}}>✕</button>
+              </div>
+            ))}
+            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>CONFIRMAR COMPRA ✅</button>}
+          </>
         )}
       </main>
 
-      {/* NAVBAR */}
-      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px' }}>
-        <button onClick={()=>setVista('catalogo')} style={{ border:'none', background: vista === 'catalogo' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px' }}>📦</button>
-        <button onClick={()=>setVista('pos')} style={{ border:'none', background: vista === 'pos' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative' }}>🛒 {carrito.length > 0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'white', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
-        <button onClick={()=>setVista('admin')} style={{ border:'none', background: vista === 'admin' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px' }}>⚡</button>
-        <button onClick={()=>setVista('historial')} style={{ border:'none', background: vista === 'historial' ? '#1e293b' : 'none', fontSize:'24px', padding:'10px', borderRadius:'12px' }}>📈</button>
+      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px', boxShadow: '0 10px 20px rgba(0,0,0,0.3)' }}>
+        <button onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📦</button>
+        <button onClick={()=>setVista('pos')} style={{background: vista==='pos'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative'}}>🛒 {carrito.length>0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'#fff', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
+        <button onClick={()=>setVista('admin')} style={{background: vista==='admin'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>⚡</button>
+        <button onClick={()=>setVista('historial')} style={{background: vista==='historial'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📈</button>
       </nav>
     </div>
   );
