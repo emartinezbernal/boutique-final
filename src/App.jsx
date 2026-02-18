@@ -13,6 +13,7 @@ export default function App() {
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
+  const [fechaConsulta, setFechaConsulta] = useState(new Date().toISOString().split('T')[0]);
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
   const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
@@ -46,15 +47,17 @@ export default function App() {
     });
   }, [inventario, carrito]);
 
-  const hoy = new Date().toLocaleDateString();
-  const ventasHoy = historial.filter(v => new Date(v.created_at).toLocaleDateString() === hoy);
-  const gastosHoy = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === hoy);
-  const totalVendido = ventasHoy.reduce((a, b) => a + (b.total || 0), 0);
-  const totalCosto = ventasHoy.reduce((a, b) => a + (b.costo_total || 0), 0);
-  const totalGastos = gastosHoy.reduce((a, b) => a + Number(b.monto || 0), 0);
-  const utilidadNeta = totalVendido - totalCosto - totalGastos;
+  // Lógica de Estadísticas por Fecha Seleccionada
+  const statsDia = useMemo(() => {
+    const f = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
+    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === f);
+    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === f);
+    const totalV = vnt.reduce((a, b) => a + (b.total || 0), 0);
+    const totalC = vnt.reduce((a, b) => a + (b.costo_total || 0), 0);
+    const totalG = gst.reduce((a, b) => a + Number(b.monto || 0), 0);
+    return { totalV, utilidad: totalV - totalC - totalG };
+  }, [historial, gastos, fechaConsulta]);
 
-  // ESTADÍSTICA POR PROVEEDOR
   const statsProveedores = useMemo(() => {
     const stats = {};
     inventario.forEach(p => {
@@ -114,7 +117,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.3 STATS+</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.4 FINAL</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -174,8 +177,17 @@ export default function App() {
         {vista === 'historial' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <p style={{margin:0, color:'#10b981', fontSize:'11px'}}>UTILIDAD NETA HOY</p>
-              <h2 style={{fontSize:'45px', margin:'5px 0'}}>${utilidadNeta.toFixed(2)}</h2>
+              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'none', color:'#fff', border:'1px solid #334155', padding:'5px', borderRadius:'8px', marginBottom:'10px'}} />
+              <div style={{display:'flex', justifyContent:'space-around', marginTop:'5px'}}>
+                <div>
+                  <p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA DEL DÍA</p>
+                  <h3 style={{margin:0}}>${statsDia.totalV.toFixed(2)}</h3>
+                </div>
+                <div>
+                  <p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD NETA</p>
+                  <h3 style={{margin:0}}>${statsDia.utilidad.toFixed(2)}</h3>
+                </div>
+              </div>
             </div>
             <div style={card}>
               <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO POR PROVEEDOR</h3>
@@ -209,10 +221,6 @@ export default function App() {
                 <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
               </form>
             </div>
-            <button onClick={() => {
-              const f = window.prompt(`Arqueo esperado: $${(totalVendido - totalGastos).toFixed(2)}`);
-              if(f) alert(`Diferencia: $${(Number(f) - (totalVendido - totalGastos)).toFixed(2)}`);
-            }} style={{width:'100%', padding:'15px', background:'#0f172a', color:'#fff', border:'none', borderRadius:'12px', fontWeight:'bold'}}>ARQUEO 🏁</button>
           </>
         )}
       </main>
