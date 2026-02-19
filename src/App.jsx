@@ -295,6 +295,8 @@ export default function App() {
                 <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
                   <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputStyle} required />
                   <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputStyle} required />
+                  {/* ADICIÓN DE VARIABLE DE CANTIDAD */}
+                  <input type="number" placeholder="Cant." value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputStyle} required />
                 </div>
                 <button className={btnClass} style={{width:'100%', padding:'12px', background:theme.accent, color:'#fff', borderRadius:'10px', border:'none'}}>GUARDAR ⚡</button>
               </form>
@@ -389,7 +391,6 @@ export default function App() {
         <button className={btnClass} onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔴</button>
         <button className={btnClass} onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', fontSize:'22px'}}>📦</button>
         
-        {/* BOTÓN CARRITO CON CONTADOR */}
         <button className={btnClass} onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', fontSize:'22px', position: 'relative'}}>
           🛒
           {carrito.length > 0 && (
