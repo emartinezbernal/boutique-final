@@ -178,7 +178,6 @@ export default function App() {
     setCortes(nuevosCortes);
     localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
 
-    // REPORTE WHATSAPP
     let msg = `*🏁 REPORTE CIERRE - PACA PRO*\n`;
     msg += `📅 Fecha: ${fechaConsulta}\n`;
     msg += `👤 Responsable: *${nuevoCorte.responsable}*\n`;
@@ -219,8 +218,10 @@ export default function App() {
     setTimeout(() => inputNombreRef.current?.focus(), 50);
   }
 
+  // --- ESTILOS ---
   const cardStyle = { background: theme.card, borderRadius: '15px', padding: '15px', border: `1px solid ${theme.border}`, marginBottom: '12px', color: theme.text };
   const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text, boxSizing: 'border-box' };
+  const btnClass = "btn-interactivo";
 
   return (
     <div style={{ fontFamily: 'sans-serif', backgroundColor: theme.bg, color: theme.text, minHeight: '100vh', paddingBottom: '100px' }}>
@@ -236,12 +237,12 @@ export default function App() {
               <input ref={inputClienteRef} placeholder="👤 Cliente" value={clienteLive} onChange={e=>setClienteLive(e.target.value)} style={{...inputStyle, fontSize: '18px', marginBottom: '15px'}} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>
                 {[50, 100, 150, 200, 250, 300].map(p => (
-                  <button key={p} onClick={() => registrarCapturaLive(p)} disabled={!clienteLive.trim()} style={{ padding: '15px', backgroundColor: theme.bg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '10px', fontWeight: 'bold' }}>${p}</button>
+                  <button key={p} className={btnClass} onClick={() => registrarCapturaLive(p)} disabled={!clienteLive.trim()} style={{ padding: '15px', backgroundColor: theme.bg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '10px', fontWeight: 'bold' }}>${p}</button>
                 ))}
               </div>
               <div style={{display:'flex', gap:'10px'}}>
                 <input type="number" placeholder="$ Manual" value={precioLiveManual} onChange={e=>setPrecioLiveManual(e.target.value)} style={inputStyle} />
-                <button onClick={() => registrarCapturaLive(precioLiveManual)} style={{background:theme.accent, color:'#fff', border:'none', borderRadius:'10px', padding:'0 20px'}}>OK</button>
+                <button className={btnClass} onClick={() => registrarCapturaLive(precioLiveManual)} style={{background:theme.accent, color:'#fff', border:'none', borderRadius:'10px', padding:'0 20px'}}>OK</button>
               </div>
             </div>
 
@@ -258,7 +259,7 @@ export default function App() {
                   </div>
                   <div style={{textAlign:'right'}}>
                     <p style={{margin:0, color:theme.accent, fontWeight:'bold', fontSize:'18px'}}>${cap.total}</p>
-                    <button onClick={() => generarWhatsAppLive(cap)} style={{background:'none', border:`1px solid ${theme.accent}`, color:theme.accent, fontSize:'10px', borderRadius:'5px', padding:'2px 5px'}}>WA 📱</button>
+                    <button className={btnClass} onClick={() => generarWhatsAppLive(cap)} style={{background:'none', border:`1px solid ${theme.accent}`, color:theme.accent, fontSize:'10px', borderRadius:'5px', padding:'2px 5px'}}>WA 📱</button>
                   </div>
                 </div>
               </div>
@@ -275,7 +276,7 @@ export default function App() {
                   <p style={{fontSize:'10px', margin:0}}>{p.paca} | {p.stockActual} pzs</p>
                   <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
                   <p style={{fontSize:'18px', fontWeight:'bold', margin:0}}>${p.precio}</p>
-                  <button onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', marginTop:'10px', padding:'8px', background:theme.bg, color:theme.accent, border:`1px solid ${theme.border}`, borderRadius:'8px'}}>AÑADIR</button>
+                  <button className={btnClass} onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', marginTop:'10px', padding:'8px', background:theme.bg, color:theme.accent, border:`1px solid ${theme.border}`, borderRadius:'8px'}}>AÑADIR</button>
                 </div>
               ))}
             </div>
@@ -295,11 +296,10 @@ export default function App() {
                   <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputStyle} required />
                   <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputStyle} required />
                 </div>
-                <button style={{width:'100%', padding:'12px', background:theme.accent, color:'#fff', borderRadius:'10px', border:'none'}}>GUARDAR ⚡</button>
+                <button className={btnClass} style={{width:'100%', padding:'12px', background:theme.accent, color:'#fff', borderRadius:'10px', border:'none'}}>GUARDAR ⚡</button>
               </form>
             </div>
 
-            {/* AQUÍ ESTÁN TUS TABLAS DE PROVEEDORES ORIGINALES */}
             <div style={cardStyle}>
               <h3 style={{fontSize:'14px', marginTop:0}}>📊 ESTADÍSTICAS POR PROVEEDOR</h3>
               <div style={{overflowX:'auto'}}>
@@ -328,7 +328,6 @@ export default function App() {
           </>
         )}
 
-        {/* VISTAS RESTANTES */}
         {vista === 'pos' && (
           <>
             <div style={{...cardStyle, textAlign:'center', border: `2px solid ${theme.accent}`}}>
@@ -337,10 +336,10 @@ export default function App() {
             {carritoAgrupado.map((item) => (
               <div key={item.id} style={{...cardStyle, display:'flex', justifyContent:'space-between'}}>
                 <div>{item.nombre} x{item.cantCar}</div>
-                <button onClick={() => setCarrito(carrito.filter(p => p.id !== item.id))} style={{color:theme.danger, background:'none', border:'none'}}>Quitar</button>
+                <button className={btnClass} onClick={() => setCarrito(carrito.filter(p => p.id !== item.id))} style={{color:theme.danger, background:'none', border:'none'}}>Quitar</button>
               </div>
             ))}
-            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'15px', background:theme.accent, color:'#fff', borderRadius:'10px', fontWeight:'bold', border:'none'}}>COBRAR ✅</button>}
+            {carrito.length > 0 && <button className={btnClass} onClick={finalizarVenta} style={{width:'100%', padding:'15px', background:theme.accent, color:'#fff', borderRadius:'10px', fontWeight:'bold', border:'none'}}>COBRAR ✅</button>}
           </>
         )}
 
@@ -352,10 +351,9 @@ export default function App() {
                 <div><p style={{margin:0, fontSize:'10px'}}>VENTAS</p><h3>${filtrados.totalV}</h3></div>
                 <div><p style={{margin:0, fontSize:'10px'}}>UTILIDAD</p><h3 style={{color:theme.accent}}>${filtrados.utilidad}</h3></div>
               </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:theme.accent, borderRadius:'8px', color:'#fff', border:'none'}}>CORTE DE CAJA 🏁</button>
+              <button className={btnClass} onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:theme.accent, borderRadius:'8px', color:'#fff', border:'none'}}>CORTE DE CAJA 🏁</button>
             </div>
 
-            {/* TABLA DE REGISTRO DE CORTES DIARIOS */}
             <div style={cardStyle}>
               <h3 style={{fontSize:'12px', marginTop:0, color:theme.textMuted}}>📋 HISTORIAL DE CORTES DIARIOS</h3>
               <div style={{overflowX:'auto'}}>
@@ -387,16 +385,36 @@ export default function App() {
         )}
       </main>
 
-      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: theme.card, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px' }}>
-        <button onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔴</button>
-        <button onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', fontSize:'22px'}}>📦</button>
-        <button onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', fontSize:'22px'}}>🛒</button>
-        <button onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', fontSize:'22px'}}>⚡</button>
-        <button onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', fontSize:'22px'}}>📈</button>
+      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: theme.card, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px', zIndex: 100 }}>
+        <button className={btnClass} onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔴</button>
+        <button className={btnClass} onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', fontSize:'22px'}}>📦</button>
+        
+        {/* BOTÓN CARRITO CON CONTADOR */}
+        <button className={btnClass} onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', fontSize:'22px', position: 'relative'}}>
+          🛒
+          {carrito.length > 0 && (
+            <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: theme.danger, color: 'white', borderRadius: '50%', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold', border: `2px solid ${theme.card}` }}>
+              {carrito.length}
+            </span>
+          )}
+        </button>
+
+        <button className={btnClass} onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', fontSize:'22px'}}>⚡</button>
+        <button className={btnClass} onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', fontSize:'22px'}}>📈</button>
       </nav>
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .btn-interactivo {
+            transition: transform 0.1s active;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-interactivo:active {
+            transform: scale(0.95);
+        }
       `}</style>
     </div>
   );
