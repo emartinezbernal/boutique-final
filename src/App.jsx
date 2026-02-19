@@ -15,7 +15,7 @@ export default function App() {
   const [gastos, setGastos] = useState([]);
   const [cortes, setCortes] = useState([]);
   
-  // CORRECCIÓN DE FECHA LOCAL: Evita desfase de zona horaria
+  // CORRECCIÓN FECHA LOCAL: Bloqueo estricto de futuro
   const obtenerFechaLocal = () => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
@@ -64,7 +64,6 @@ export default function App() {
   }, [inventario, carrito]);
 
   const filtrados = useMemo(() => {
-    // Usamos el formato local para comparar con la base de datos
     const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
     const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
     const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fFiltro);
@@ -73,11 +72,6 @@ export default function App() {
     const totalG = gst.reduce((a, b) => a + Number(b.monto || 0), 0);
     return { vnt, gst, totalV, totalG, utilidad: totalV - totalC - totalG, ventasCount: vnt.length };
   }, [historial, gastos, fechaConsulta]);
-
-  const corteDelDia = useMemo(() => {
-    const cortesFiltrados = cortes.filter(c => c.fechaFiltro === fechaConsulta);
-    return cortesFiltrados.length > 0 ? cortesFiltrados[cortesFiltrados.length - 1] : null;
-  }, [cortes, fechaConsulta]);
 
   const statsProveedores = useMemo(() => {
     const stats = {};
@@ -91,9 +85,10 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  const enviarWhatsapp = (msg) => {
-    window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-  };
+  const corteDelDia = useMemo(() => {
+    const cortesFiltrados = cortes.filter(c => c.fechaFiltro === fechaConsulta);
+    return cortesFiltrados.length > 0 ? cortesFiltrados[cortesFiltrados.length - 1] : null;
+  }, [cortes, fechaConsulta]);
 
   const realizarCorte = () => {
     const f = window.prompt(`ARQUEO: ¿Cuánto dinero hay físicamente en caja?`);
@@ -108,14 +103,14 @@ export default function App() {
     setCortes(nuevosCortes);
     localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
 
-    let msg = `*🏁 CIERRE PACA PRO*\n📅 Fecha: ${fechaConsulta}\n--------------------------\n`;
-    msg += `💰 Venta: *$${filtrados.totalV.toFixed(2)}*\n📉 Gastos: *$${filtrados.totalG.toFixed(2)}*\n📈 Utilidad: *$${filtrados.utilidad.toFixed(2)}*\n--------------------------\n`;
+    let msg = `*🏁 REPORTE CIERRE - PACA PRO*\n📅 Fecha: ${fechaConsulta}\n⏰ Hora: ${timestamp.split(', ')[1]}\n--------------------------\n`;
+    msg += `💰 Venta Bruta: *$${filtrados.totalV.toFixed(2)}*\n📉 Gastos Totales: *$${filtrados.totalG.toFixed(2)}*\n📈 Utilidad Neta: *$${filtrados.utilidad.toFixed(2)}*\n--------------------------\n`;
     msg += `💸 *DETALLE GASTOS:*\n`;
     if (filtrados.gst.length > 0) filtrados.gst.forEach(g => { msg += `• ${g.concepto}: $${Number(g.monto).toFixed(2)}\n`; });
-    else msg += `• Sin gastos\n`;
-    msg += `--------------------------\n💵 Caja: *$${fisico.toFixed(2)}*\n⚖️ Dif: *${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}*`;
+    else msg += `• Sin gastos registrados\n`;
+    msg += `--------------------------\n💵 Caja Arqueo: *$${fisico.toFixed(2)}*\n⚖️ Diferencia: *${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}*`;
 
-    if (window.confirm("¿Enviar a WhatsApp?")) enviarWhatsapp(msg);
+    window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
   };
 
   async function finalizarVenta() {
@@ -132,7 +127,7 @@ export default function App() {
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
       setCarrito([]); await obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error"); }
+    } catch (e) { alert("Error al vender"); }
   }
 
   async function guardarTurbo(e) {
@@ -156,13 +151,13 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v14.4 FINAL</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v14.5 FINAL</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
+            <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               {inventarioReal.filter(p => p.stockActual > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={card}>
@@ -198,86 +193,4 @@ export default function App() {
         {vista === 'admin' && (
           <div style={card}>
             <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
-              <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
-            </div>
-            <form onSubmit={guardarTurbo}>
-              <input ref={inputNombreRef} placeholder="Nombre" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...inputS, marginBottom:'10px'}} required />
-              <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                <input type="number" step="0.01" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputS} required />
-                <input type="number" step="0.01" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
-                <input type="number" placeholder="Stock" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
-              </div>
-              <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold'}}>REGISTRAR ⚡</button>
-            </form>
-          </div>
-        )}
-
-        {vista === 'historial' && (
-          <>
-            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <label style={{fontSize:'10px', color:'#94a3b8', display:'block', marginBottom:'5px'}}>CONSULTAR HISTORIAL:</label>
-              <input 
-                type="date" 
-                max={hoyStr} 
-                value={fechaConsulta} 
-                onChange={e=>setFechaConsulta(e.target.value)} 
-                style={{background:'#1e293b', color:'#fff', border:'1px solid #334155', padding:'8px', borderRadius:'8px', marginBottom:'10px', textAlign:'center', width:'100%'}} 
-              />
-              <div style={{display:'flex', justifyContent:'space-around', marginTop:'5px'}}>
-                <div><p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA</p><h3>${filtrados.totalV.toFixed(2)}</h3></div>
-                <div><p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD</p><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
-              </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
-            </div>
-
-            {corteDelDia && (
-              <div style={{...card, borderLeft:'5px solid #10b981', backgroundColor:'#ecfdf5'}}>
-                <h3 style={{fontSize:'12px', margin:'0 0 5px 0', color:'#065f46'}}>✅ ARQUEO REGISTRADO</h3>
-                <p style={{margin:0, fontSize:'11px', color:'#047857'}}>
-                  <b>Hora:</b> {corteDelDia.timestamp.split(', ')[1]} | <b>Físico:</b> ${corteDelDia.reportado.toFixed(2)} | 
-                  <b> Dif:</b> <span style={{color: corteDelDia.diferencia < 0 ? '#ef4444' : '#10b981'}}>${corteDelDia.diferencia.toFixed(2)}</span>
-                </p>
-              </div>
-            )}
-
-            <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a', borderBottom:'1px solid #f1f5f9', paddingBottom:'5px'}}>💸 GASTOS</h3>
-              {filtrados.gst.length > 0 ? (
-                <table style={{width:'100%', fontSize:'12px'}}>
-                  <tbody>
-                    {filtrados.gst.map((g, i) => (
-                      <tr key={i} style={{borderBottom:'1px solid #f8fafc'}}>
-                        <td style={{padding:'5px 0'}}>{g.concepto}</td>
-                        <td style={{textAlign:'right', color:'#ef4444'}}><b>-${Number(g.monto).toFixed(2)}</b></td>
-                      </tr>
-                    ))}
-                    <tr style={{borderTop:'2px solid #f1f5f9'}}>
-                        <td style={{padding:'5px 0'}}><b>TOTAL</b></td>
-                        <td style={{textAlign:'right', color:'#ef4444'}}><b>-${filtrados.totalG.toFixed(2)}</b></td>
-                    </tr>
-                  </tbody>
-                </table>
-              ) : <p style={{fontSize:'11px', color:'#94a3b8', textAlign:'center'}}>Sin gastos registrados.</p>}
-            </div>
-
-            <div style={card}>
-              <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
-                <input placeholder="Concepto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
-                <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
-                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
-              </form>
-            </div>
-          </>
-        )}
-      </main>
-
-      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px' }}>
-        <button onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📦</button>
-        <button onClick={()=>setVista('pos')} style={{background: vista==='pos'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative'}}>🛒 {carrito.length>0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'#fff', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
-        <button onClick={()=>setVista('admin')} style={{background: vista==='admin'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>⚡</button>
-        <button onClick={()=>setVista('historial')} style={{background: vista==='historial'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📈</button>
-      </nav>
-    </div>
-  );
-}
+              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...info
