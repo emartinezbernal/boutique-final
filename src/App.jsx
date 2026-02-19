@@ -1,28 +1,23 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
+// Configuración de Supabase
 const supabase = createClient(
   'https://jznfomuaxipfigxgokap.supabase.co', 
   'sb_publishable_WjqrlE0gXGWUUYSkefmZBQ_NIzjJHNn'
 );
 
 export default function App() {
-  const [usuario, setUsuario] = useState(localStorage.getItem('userPacaPro') || '');
-  const [tempUser, setTempUser] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [passMaestra] = useState('1234');
-  const [passInput, setPassInput] = useState('');
-  const [mostrandoLoginAdmin, setMostrandoLoginAdmin] = useState(false);
-  const [vistaPendiente, setVistaPendiente] = useState(null);
-  
+  // --- ESTADOS ---
+  const [inventario, setInventario] = useState([]);
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
-  const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [arqueos, setArqueos] = useState([]);
-
+  
+  // Fecha local para consultas
   const hoyStr = useMemo(() => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
@@ -31,222 +26,266 @@ export default function App() {
   }, []);
   const [fechaConsulta, setFechaConsulta] = useState(hoyStr);
 
+  // Inputs
+  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoGasto, setNuevoGasto] = useState({ descripcion: '', monto: '' });
   const [efectivoCaja, setEfectivoCaja] = useState('');
-  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
-  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  
+  const inputNombreRef = useRef(null);
 
-  useEffect(() => { if (usuario) obtenerTodo(); }, [usuario]);
+  // --- CARGA DE DATOS ---
+  useEffect(() => {
+    obtenerTodo();
+  }, []);
 
   async function obtenerTodo() {
     const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
     if (p) setInventario(p);
     const { data: v } = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
     if (v) setHistorial(v);
-    const { data: a } = await supabase.from('arqueos').select('*').order('created_at', { ascending: false });
-    if (a) setArqueos(a);
     const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
     if (g) setGastos(g);
+    const { data: a } = await supabase.from('arqueos').select('*').order('created_at', { ascending: false });
+    if (a) setArqueos(a);
   }
 
-  const manejarIngreso = () => { if (tempUser.trim()) { setUsuario(tempUser); localStorage.setItem('userPacaPro', tempUser); } };
-  const intentarAccesoAdmin = (v) => {
-    if (['admin', 'historial'].includes(v) && !isAdmin) { setVistaPendiente(v); setMostrandoLoginAdmin(true); } 
-    else { setVista(v); }
-  };
-  const confirmarPassword = () => {
-    if (passInput === passMaestra) { setIsAdmin(true); setVista(vistaPendiente); setMostrandoLoginAdmin(false); setPassInput(''); } 
-    else { alert("❌ Clave incorrecta"); setPassInput(''); }
-  };
-
+  // --- LÓGICA DE VENTAS ---
   async function registrarVenta() {
-    const vTotal = carrito.reduce((a, b) => a + Number(b.precio), 0);
-    const cTotal = carrito.reduce((a, b) => a + Number(b.costo_unitario), 0);
-    const detalle = carrito.map(p => `${p.nombre} (${p.proveedor})`).join(', ');
-    const { error } = await supabase.from('ventas').insert([{ vendedor: usuario, productos: detalle, total: vTotal, costo_total: cTotal }]);
+    const totalVenta = carrito.reduce((a, b) => a + b.precio, 0);
+    const costoTotal = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
+    const detalle = carrito.map(p => `${p.nombre} (${p.proveedor || 'S/P'})`).join(', ');
+
+    const { error } = await supabase.from('ventas').insert([
+      { productos: detalle, total: totalVenta, costo_total: costoTotal, vendedor: 'Vendedor' }
+    ]);
+
     if (!error) {
-      for (const item of carrito) { await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id); }
-      setCarrito([]); obtenerTodo(); setVista('catalogo'); alert("✅ Venta Guardada");
+      for (const item of carrito) {
+        await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
+      }
+      setCarrito([]);
+      obtenerTodo();
+      setVista('catalogo');
+      alert("✅ Venta registrada con éxito");
     }
   }
 
-  async function agregarGasto() {
-    if (!nuevoGasto.descripcion || !nuevoGasto.monto) return;
-    const { error } = await supabase.from('gastos').insert([{ descripcion: nuevoGasto.descripcion, monto: Number(nuevoGasto.monto), vendedor: usuario }]);
-    if (!error) { setNuevoGasto({ descripcion: '', monto: '' }); obtenerTodo(); }
-  }
-
-  async function cerrarDia() {
-    if (!efectivoCaja) return alert("Ingrese efectivo");
-    const vntHoy = historial.filter(v => new Date(v.created_at).toLocaleDateString() === new Date().toLocaleDateString());
-    const totalSistema = vntHoy.reduce((a, b) => a + b.total, 0);
-    const diferencia = Number(efectivoCaja) - totalSistema;
-    const { error } = await supabase.from('arqueos').insert([{ vendedor: usuario, total_ventas: totalSistema, efectivo_real: Number(efectivoCaja), diferencia }]);
-    if (!error) { alert("🏁 Corte registrado"); setEfectivoCaja(''); obtenerTodo(); }
-  }
-
-  const invPorProveedor = useMemo(() => {
-    const mapa = {};
-    inventario.forEach(p => {
-      const pr = p.proveedor || 'S/P';
-      if (!mapa[pr]) mapa[pr] = { stock: 0, inversion: 0, ventaEst: 0 };
-      mapa[pr].stock += (p.stock || 0);
-      mapa[pr].inversion += ((p.stock || 0) * (p.costo_unitario || 0));
-      mapa[pr].ventaEst += ((p.stock || 0) * (p.precio || 0));
-    });
-    return mapa;
-  }, [inventario]);
-
-  const statsFinales = useMemo(() => {
+  // --- CÁLCULOS ESTADÍSTICOS ---
+  const stats = useMemo(() => {
     const fLocal = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
-    const vntFiltradas = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fLocal);
-    const gstFiltrados = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fLocal);
     
-    const ingresos = vntFiltradas.reduce((a, b) => a + b.total, 0);
-    const totalGastos = gstFiltrados.reduce((a, b) => a + b.monto, 0);
-    const utilidadVenta = ingresos - vntFiltradas.reduce((a, b) => a + b.costo_total, 0);
-
-    return { vntFiltradas, gstFiltrados, ingresos, totalGastos, utilidadVenta, neto: ingresos - totalGastos };
+    const vntDia = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fLocal);
+    const gstDia = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fLocal);
+    
+    const ingresos = vntDia.reduce((a, b) => a + b.total, 0);
+    const egresos = gstDia.reduce((a, b) => a + b.monto, 0);
+    const costos = vntDia.reduce((a, b) => a + (b.costo_total || 0), 0);
+    
+    return {
+      ingresos,
+      egresos,
+      utilidadBruta: ingresos - costos,
+      netoEfectivo: ingresos - egresos,
+      vntDia,
+      gstDia
+    };
   }, [historial, gastos, fechaConsulta]);
 
+  const invPorProveedor = useMemo(() => {
+    const resumen = {};
+    inventario.forEach(p => {
+      const prov = p.proveedor || 'Sin Proveedor';
+      if (!resumen[prov]) resumen[prov] = { stock: 0, inversion: 0, ventaEst: 0 };
+      resumen[prov].stock += p.stock;
+      resumen[prov].inversion += (p.stock * (p.costo_unitario || 0));
+      resumen[prov].ventaEst += (p.stock * p.precio);
+    });
+    return resumen;
+  }, [inventario]);
+
+  // --- ESTILOS ---
   const estilos = {
-    card: { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '15px' },
-    input: { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', boxSizing: 'border-box' },
-    btn: { width: '100%', padding: '12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' },
-    th: { background: '#0f172a', color: '#fff', padding: '8px', fontSize: '10px', textAlign: 'left' },
-    td: { padding: '8px', borderBottom: '1px solid #eee', fontSize: '11px' }
+    card: { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', marginBottom: '15px' },
+    input: { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', marginBottom: '10px', boxSizing: 'border-box' },
+    btn: { width: '100%', padding: '12px', borderRadius: '10px', border: 'none', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' },
+    th: { background: '#f8fafc', color: '#64748b', padding: '10px', fontSize: '11px', textAlign: 'left', borderBottom: '1px solid #eee' }
   };
 
-  if (!usuario) {
-    return (
-      <div style={{ background: '#0f172a', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#fff', padding: '30px', borderRadius: '25px', width: '300px', textAlign: 'center' }}>
-          <h2 style={{ margin: 0 }}>PACA PRO</h2>
-          <input placeholder="Vendedor" value={tempUser} onChange={e=>setTempUser(e.target.value)} style={{ ...estilos.input, textAlign: 'center', margin: '20px 0' }} />
-          <button onClick={manejarIngreso} style={estilos.btn}>INGRESAR</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
-      {mostrandoLoginAdmin && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.95)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ background:'#fff', padding:'25px', borderRadius:'20px', width:'280px', textAlign:'center' }}>
-            <h3>🔐 Admin</h3>
-            <input type="password" autoFocus value={passInput} onChange={e=>setPassInput(e.target.value)} style={{...estilos.input, textAlign:'center', fontSize:'24px', letterSpacing:'4px'}} />
-            <button onClick={confirmarPassword} style={{...estilos.btn, marginTop:'15px'}}>VALIDAR</button>
-          </div>
-        </div>
-      )}
-
-      <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h2 style={{margin:0, fontSize:'16px'}}>PACA PRO | {isAdmin ? 'ADMIN' : 'VENTAS'}</h2>
+    <div style={{ background: '#f0f2f5', minHeight: '100vh', paddingBottom: '80px', fontFamily: 'system-ui' }}>
+      
+      {/* HEADER */}
+      <header style={{ background: '#1a1a1a', color: '#fff', padding: '15px', textAlign: 'center' }}>
+        <h2 style={{ margin: 0, fontSize: '18px' }}>PACA PRO v14.6 fix</h2>
       </header>
 
-      <main style={{ padding: '15px', maxWidth: '600px', margin: '0 auto' }}>
+      <main style={{ maxWidth: '600px', margin: '0 auto', padding: '15px' }}>
+        
+        {/* VISTA CATÁLOGO */}
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...estilos.input, marginBottom:'15px'}} />
+            <input 
+              placeholder="🔍 Buscar producto..." 
+              style={estilos.input} 
+              onChange={(e) => setBusqueda(e.target.value)} 
+            />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               {inventario.filter(p => p.stock > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={estilos.card}>
-                  <small style={{color:'#94a3b8'}}>{p.proveedor}</small>
-                  <h4 style={{margin:'5px 0'}}>{p.nombre}</h4>
-                  <div style={{fontSize:'18px', fontWeight:'900'}}>${p.precio}</div>
-                  <button onClick={()=>setCarrito([...carrito, p])} style={{...estilos.btn, background:'#0f172a', marginTop:'10px'}}>VENDER</button>
+                  <small style={{ color: '#888' }}>{p.proveedor}</small>
+                  <h4 style={{ margin: '5px 0' }}>{p.nombre}</h4>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#2ecc71' }}>${p.precio}</div>
+                  <button 
+                    onClick={() => setCarrito([...carrito, p])}
+                    style={{ ...estilos.btn, background: '#1a1a1a', color: '#fff', marginTop: '10px', fontSize: '12px' }}
+                  > + AGREGAR </button>
                 </div>
               ))}
             </div>
           </>
         )}
 
-        {vista === 'historial' && isAdmin && (
+        {/* VISTA ESTADÍSTICAS (FINANZAS + PROVEEDORES) */}
+        {vista === 'estadisticas' && (
           <>
-            {/* TABLA INVENTARIO POR PROVEEDOR */}
             <div style={estilos.card}>
-              <h3 style={{marginTop:0, fontSize:'14px'}}>📦 INVENTARIO POR PROVEEDOR</h3>
-              <table style={{width:'100%', borderCollapse:'collapse'}}>
-                <thead><tr><th style={estilos.th}>Prov.</th><th style={estilos.th}>Stock</th><th style={estilos.th}>Inversión</th><th style={estilos.th}>Venta Est.</th></tr></thead>
-                <tbody>
-                  {Object.keys(invPorProveedor).map(p => (
-                    <tr key={p}><td style={estilos.td}>{p}</td><td style={estilos.td}>{invPorProveedor[p].stock}</td><td style={estilos.td}>${invPorProveedor[p].inversion}</td><td style={estilos.td}>${invPorProveedor[p].ventaEst}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* REPORTE ECONÓMICO Y CORTE */}
-            <div style={estilos.card}>
-              <h3 style={{marginTop:0, fontSize:'14px'}}>📈 RESUMEN DE CORTE</h3>
-              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{...estilos.input, marginBottom:'15px'}} />
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px', marginBottom:'15px'}}>
-                <div style={{background:'#f1f5f9', padding:'8px', borderRadius:'8px', textAlign:'center'}}><small>VENTAS</small><br/><b>${statsFinales.ingresos}</b></div>
-                <div style={{background:'#fef2f2', padding:'8px', borderRadius:'8px', textAlign:'center', color:'#b91c1c'}}><small>GASTOS</small><br/><b>${statsFinales.totalGastos}</b></div>
-                <div style={{background:'#ecfdf5', padding:'8px', borderRadius:'8px', textAlign:'center', color:'#059669'}}><small>NETO</small><br/><b>${statsFinales.neto}</b></div>
+              <h3 style={{ marginTop: 0 }}>📊 Inventario por Proveedor</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={estilos.th}>Prov.</th>
+                      <th style={estilos.th}>Stock</th>
+                      <th style={estilos.th}>Inversión</th>
+                      <th style={estilos.th}>Venta Est.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.keys(invPorProveedor).map(prov => (
+                      <tr key={prov} style={{ borderBottom: '1px solid #f9f9f9' }}>
+                        <td style={{ padding: '10px', fontSize: '12px' }}>{prov}</td>
+                        <td style={{ padding: '10px', fontSize: '12px' }}>{invPorProveedor[prov].stock}</td>
+                        <td style={{ padding: '10px', fontSize: '12px' }}>${invPorProveedor[prov].inversion}</td>
+                        <td style={{ padding: '10px', fontSize: '12px' }}>${invPorProveedor[prov].ventaEst}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {/* TABLA GASTOS (NUEVA) */}
             <div style={estilos.card}>
-              <h3 style={{marginTop:0, fontSize:'14px'}}>💸 GASTOS</h3>
-              <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                <input placeholder="Descripción" value={nuevoGasto.descripcion} onChange={e=>setNuevoGasto({...nuevoGasto, descripcion:e.target.value})} style={estilos.input} />
-                <input type="number" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto:e.target.value})} style={{...estilos.input, width:'80px'}} />
-                <button onClick={agregarGasto} style={{...estilos.btn, width:'40px'}}>+</button>
+              <h3>📉 Resumen Financiero</h3>
+              <input type="date" value={fechaConsulta} onChange={(e) => setFechaConsulta(e.target.value)} style={estilos.input} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', textAlign: 'center' }}>
+                <div style={{ background: '#e8f5e9', padding: '10px', borderRadius: '10px' }}>
+                  <small>Ingresos</small><br/><b>${stats.ingresos}</b>
+                </div>
+                <div style={{ background: '#ffebee', padding: '10px', borderRadius: '10px' }}>
+                  <small>Gastos</small><br/><b>${stats.egresos}</b>
+                </div>
+                <div style={{ background: '#e3f2fd', padding: '10px', borderRadius: '10px', gridColumn: 'span 2' }}>
+                  <small>Flujo Neto (Caja)</small><br/><b style={{ fontSize: '20px' }}>${stats.netoEfectivo}</b>
+                </div>
               </div>
-              <table style={{width:'100%', fontSize:'11px'}}>
-                {statsFinales.gstFiltrados.map((g, i) => (
-                  <tr key={i} style={{borderBottom:'1px solid #eee'}}><td style={{padding:'5px'}}>{g.descripcion}</td><td style={{padding:'5px', textAlign:'right', color:'#ef4444'}}>-${g.monto}</td></tr>
-                ))}
-              </table>
+            </div>
+
+            <div style={estilos.card}>
+              <h3>💸 Registrar Gasto</h3>
+              <input placeholder="Descripción" value={nuevoGasto.descripcion} onChange={e=>setNuevoGasto({...nuevoGasto, descripcion:e.target.value})} style={estilos.input} />
+              <input type="number" placeholder="Monto $" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto:e.target.value})} style={estilos.input} />
+              <button 
+                onClick={async () => {
+                  await supabase.from('gastos').insert([{ ...nuevoGasto, monto: Number(nuevoGasto.monto) }]);
+                  setNuevoGasto({ descripcion: '', monto: '' }); obtenerTodo();
+                }}
+                style={{ ...estilos.btn, background: '#e74c3c', color: '#fff' }}
+              > GUARDAR GASTO </button>
             </div>
           </>
         )}
 
-        {vista === 'admin' && isAdmin && (
-          <div style={estilos.card}>
-            <h3>⚡ CARGAR PRODUCTO</h3>
-            <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-              <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={estilos.input}/>
-              <input placeholder="Paca #" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={estilos.input}/>
-            </div>
-            <input placeholder="Nombre de Prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...estilos.input, marginBottom:'10px'}} />
-            <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-              <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={estilos.input} />
-              <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={estilos.input} />
-              <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={estilos.input} />
-            </div>
-            <button onClick={async()=>{
-              await supabase.from('productos').insert([{nombre:nuevoProd.nombre, precio:Number(nuevoProd.precio), costo_unitario:Number(nuevoProd.costo), stock:Number(nuevoProd.cantidad), proveedor:infoPaca.proveedor, paca:infoPaca.numero}]);
-              setNuevoProd({...nuevoProd, nombre:''}); obtenerTodo();
-            }} style={estilos.btn}>GUARDAR</button>
-          </div>
-        )}
-
+        {/* VISTA POS (CARRITO + CORTE) */}
         {vista === 'pos' && (
-          <div style={{textAlign:'center'}}>
-            <div style={{...estilos.card, background:'#0f172a', color:'#10b981'}}>
-              <h2 style={{fontSize:'45px', margin:0}}>${carrito.reduce((a,b)=>a+Number(b.precio), 0)}</h2>
-              <small>TOTAL</small>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ ...estilos.card, background: '#1a1a1a', color: '#fff' }}>
+              <small>TOTAL CARRITO</small>
+              <h2 style={{ fontSize: '40px', margin: 0 }}>${carrito.reduce((a, b) => a + b.precio, 0)}</h2>
             </div>
-            {carrito.length > 0 && <button onClick={registrarVenta} style={estilos.btn}>FINALIZAR VENTA</button>}
+            {carrito.map((p, i) => (
+              <div key={i} style={{ ...estilos.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>{p.nombre}</span>
+                <b>${p.precio}</b>
+              </div>
+            ))}
+            {carrito.length > 0 && (
+              <button onClick={registrarVenta} style={{ ...estilos.btn, background: '#2ecc71', color: '#fff', padding: '20px', fontSize: '18px' }}> FINALIZAR VENTA </button>
+            )}
 
-            <div style={{...estilos.card, marginTop:'40px'}}>
-              <h3>🏁 CORTE DE DÍA</h3>
-              <input type="number" placeholder="Efectivo real en caja" value={efectivoCaja} onChange={e=>setEfectivoCaja(e.target.value)} style={{...estilos.input, textAlign:'center', marginBottom:'10px'}} />
-              <button onClick={cerrarDia} style={{...estilos.btn, background:'#6366f1'}}>CERRAR CAJA</button>
+            <div style={{ ...estilos.card, marginTop: '30px' }}>
+              <h3>🏁 Corte de Caja</h3>
+              <input 
+                type="number" 
+                placeholder="Efectivo real en caja" 
+                value={efectivoCaja} 
+                onChange={(e) => setEfectivoCaja(e.target.value)} 
+                style={{ ...estilos.input, textAlign: 'center', fontSize: '20px' }} 
+              />
+              <button 
+                onClick={async () => {
+                  const dif = Number(efectivoCaja) - stats.ingresos;
+                  await supabase.from('arqueos').insert([{ total_ventas: stats.ingresos, efectivo_real: Number(efectivoCaja), diferencia: dif }]);
+                  alert(`Corte guardado. Diferencia: $${dif}`);
+                  setEfectivoCaja(''); obtenerTodo();
+                }}
+                style={{ ...estilos.btn, background: '#3498db', color: '#fff' }}
+              > REGISTRAR ARQUEO </button>
             </div>
           </div>
         )}
+
+        {/* VISTA ADMIN */}
+        {vista === 'admin' && (
+          <div style={estilos.card}>
+            <h3>📦 Carga de Inventario</h3>
+            <div style={{ display: 'flex', gap: '5px' }}>
+              <input placeholder="Paca #" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero:e.target.value})} style={estilos.input} />
+              <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor:e.target.value})} style={estilos.input} />
+            </div>
+            <input ref={inputNombreRef} placeholder="Nombre del Producto" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre:e.target.value})} style={estilos.input} />
+            <div style={{ display: 'flex', gap: '5px' }}>
+              <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo:e.target.value})} style={estilos.input} />
+              <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio:e.target.value})} style={estilos.input} />
+              <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad:e.target.value})} style={estilos.input} />
+            </div>
+            <button 
+              onClick={async () => {
+                await supabase.from('productos').insert([{
+                  nombre: nuevoProd.nombre, 
+                  precio: Number(nuevoProd.precio), 
+                  costo_unitario: Number(nuevoProd.costo), 
+                  stock: Number(nuevoProd.cantidad),
+                  proveedor: infoPaca.proveedor,
+                  paca: infoPaca.numero
+                }]);
+                setNuevoProd({ ...nuevoProd, nombre: '' });
+                obtenerTodo();
+                inputNombreRef.current.focus();
+              }}
+              style={{ ...estilos.btn, background: '#1a1a1a', color: '#fff' }}
+            > GUARDAR PRODUCTO </button>
+          </div>
+        )}
+
       </main>
 
-      <nav style={{ position: 'fixed', bottom: '15px', left: '15px', right: '15px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '25px' }}>
-        <button onClick={()=>intentarAccesoAdmin('catalogo')} style={{background:'none', border:'none', fontSize:'24px', color: vista==='catalogo'?'#10b981':'#94a3b8'}}>📦</button>
-        <button onClick={()=>intentarAccesoAdmin('pos')} style={{background:'none', border:'none', fontSize:'24px', color: vista==='pos'?'#10b981':'#94a3b8'}}>🛒</button>
-        <button onClick={()=>intentarAccesoAdmin('admin')} style={{background:'none', border:'none', fontSize:'24px', color: vista==='admin'?'#10b981':'#94a3b8'}}>⚡</button>
-        <button onClick={()=>intentarAccesoAdmin('historial')} style={{background:'none', border:'none', fontSize:'24px', color: vista==='historial'?'#10b981':'#94a3b8'}}>📈</button>
+      {/* NAV INFERIOR */}
+      <nav style={{ position: 'fixed', bottom: 0, width: '100%', background: '#fff', display: 'flex', justifyContent: 'space-around', padding: '10px 0', borderTop: '1px solid #ddd' }}>
+        <button onClick={() => setVista('catalogo')} style={{ background: 'none', border: 'none', fontSize: '20px' }}>📦</button>
+        <button onClick={() => setVista('pos')} style={{ background: 'none', border: 'none', fontSize: '20px' }}>🛒</button>
+        <button onClick={() => setVista('estadisticas')} style={{ background: 'none', border: 'none', fontSize: '20px' }}>📈</button>
+        <button onClick={() => setVista('admin')} style={{ background: 'none', border: 'none', fontSize: '20px' }}>⚙️</button>
       </nav>
     </div>
   );
