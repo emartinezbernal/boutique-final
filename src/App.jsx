@@ -195,6 +195,9 @@ export default function App() {
 
   async function finalizarVenta() {
     if (carrito.length === 0) return;
+    const responsable = window.prompt("¿Nombre del Vendedor?");
+    if (!responsable) return;
+    
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
     if (!m) return;
     let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
@@ -202,13 +205,14 @@ export default function App() {
     const tv = carrito.reduce((a, b) => a + b.precio, 0);
     const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
     const folioVenta = `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+    const hora = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
     try {
-      // 1. Registrar en Supabase
+      // 1. Registrar en Supabase (Añadimos Vendedor y Hora al detalle para el historial)
       await supabase.from('ventas').insert([{ 
         total: tv, 
         costo_total: cv, 
-        detalles: `${mTxt} [${folioVenta}]: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
+        detalles: `🛒 [${folioVenta}] Vendedor: ${responsable.toUpperCase()} | Pago: ${mTxt} | Hora: ${hora} | Productos: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
       }]);
 
       // 2. Descontar Inventario
@@ -221,7 +225,8 @@ export default function App() {
       let ticketMsg = `*🛍️ TICKET DE COMPRA - PACA PRO*\n`;
       ticketMsg += `--------------------------\n`;
       ticketMsg += `🆔 Folio: *${folioVenta}*\n`;
-      ticketMsg += `📅 Fecha: ${new Date().toLocaleDateString()}\n`;
+      ticketMsg += `👤 Vendedor: *${responsable.toUpperCase()}*\n`;
+      ticketMsg += `📅 Fecha: ${new Date().toLocaleDateString()} | ${hora}\n`;
       ticketMsg += `💳 Pago: *${mTxt}*\n`;
       ticketMsg += `--------------------------\n`;
       carritoAgrupado.forEach(item => {
@@ -382,6 +387,41 @@ export default function App() {
                 <div><p style={{margin:0, fontSize:'10px'}}>UTILIDAD</p><h3 style={{color:theme.accent}}>${filtrados.utilidad}</h3></div>
               </div>
               <button className={btnClass} onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:theme.accent, borderRadius:'8px', color:'#fff', border:'none'}}>CORTE DE CAJA 🏁</button>
+            </div>
+
+            {/* NUEVO: REGISTRO DETALLADO DE VENTAS */}
+            <div style={cardStyle}>
+              <h3 style={{fontSize:'12px', marginTop:0, color:theme.textMuted}}>🧾 REGISTRO DETALLADO DE VENTAS</h3>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%', fontSize:'10px', borderCollapse:'collapse'}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${theme.border}`, color:theme.textMuted}}>
+                      <th style={{textAlign:'left', padding:'5px'}}>Hora / Folio</th>
+                      <th style={{textAlign:'left', padding:'5px'}}>Vendedor / Pago</th>
+                      <th style={{textAlign:'left', padding:'5px'}}>Detalle Productos</th>
+                      <th style={{textAlign:'right', padding:'5px'}}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtrados.vnt.map((v) => (
+                      <tr key={v.id} style={{borderBottom:`1px solid ${theme.border}`}}>
+                        <td style={{padding:'5px', verticalAlign:'top'}}>
+                          {new Date(v.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}<br/>
+                          <span style={{fontSize:'8px', opacity:0.7}}>{v.detalles?.match(/\[(.*?)\]/)?.[1] || 'S/F'}</span>
+                        </td>
+                        <td style={{padding:'5px', verticalAlign:'top'}}>
+                          <span style={{color:theme.accent}}>{v.detalles?.match(/Vendedor: (.*?) \|/)?.[1] || 'LIVE'}</span><br/>
+                          {v.detalles?.match(/Pago: (.*?) \|/)?.[1] || 'Efectivo'}
+                        </td>
+                        <td style={{padding:'5px', fontSize:'9px', maxWidth:'150px'}}>
+                          {v.detalles?.split('Productos: ')[1] || v.detalles}
+                        </td>
+                        <td style={{textAlign:'right', padding:'5px', fontWeight:'bold'}}>${v.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div style={cardStyle}>
