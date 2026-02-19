@@ -67,47 +67,48 @@ export default function App() {
   }
 
   // --- LÓGICA DE LIVE HELPER (SUBASTAS) ---
-  const PRECIOS_RAPIDOS = [50, 100, 150, 200, 250, 300];
-
-  const registrarCapturaLive = async (precio) => {
+ const registrarCapturaLive = async (precio) => {
     if (!clienteLive.trim() || precio <= 0) return;
     
+    // Pregunta rápida por el método de entrega
+    const metodo = window.prompt("Método de entrega: 1. Envío | 2. Local | 3. Punto Medio", "1");
+    const metodoTxt = metodo === "1" ? "Envío a domicilio" : metodo === "2" ? "Recoge en local" : "Punto medio";
+
     const folio = `L-${Math.floor(1000 + Math.random() * 9000)}`;
     const nuevaCaptura = {
       id: Date.now(),
       cliente: clienteLive.trim().toUpperCase(),
       precio: Number(precio),
       folio,
+      metodo: metodoTxt,
       hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
     };
 
-    // Agregar a la lista temporal de pantalla
     setCapturasLive([nuevaCaptura, ...capturasLive]);
     
-    // Opcional: Guardar en base de datos como "Venta/Apartado" de inmediato
-    // Si tienes tabla apartados, cambia 'ventas' por 'apartados'
     try {
       await supabase.from('ventas').insert([{ 
         total: nuevaCaptura.precio, 
-        costo_total: 0, // Ajustar si calculas merma en vivo
-        detalles: `🔴 LIVE Apartado [${folio}]: ${nuevaCaptura.cliente}` 
+        costo_total: 0, 
+        detalles: `🔴 LIVE [${folio}]: ${nuevaCaptura.cliente} (${metodoTxt})` 
       }]);
       obtenerTodo();
     } catch (e) { console.error("Error guardando en BD", e); }
 
     setClienteLive('');
     setPrecioLiveManual('');
-    // Regresar el foco al input del cliente para velocidad extrema
     setTimeout(() => inputClienteRef.current?.focus(), 50);
   };
 
   const generarWhatsAppLive = (captura) => {
-    let msg = `¡Hola *${captura.cliente}*! 👋 Gracias por acompañarnos en el Live.\n\n`;
-    msg += `Ganaste una prenda con el folio: *${captura.folio}*\n`;
-    msg += `*Total a pagar:* $${captura.precio}\n\n`;
-    msg += `Por favor envíanos tu comprobante por este medio. ¡Tienes 24 hrs para asegurar tu prenda! ⏳👗`;
+    let msg = `¡Hola *${captura.cliente}*! 👋 Gracias por tu compra en el Live.\n\n`;
+    msg += `✅ *Detalle de tu prenda:*\n`;
+    msg += `• Folio: *${captura.folio}*\n`;
+    msg += `• Precio: *$${captura.precio}*\n`;
+    msg += `• Entrega: *${captura.metodo}*\n\n`; // <--- Dato adicional adicionado
+    msg += `*Total a pagar: $${captura.precio}*\n\n`;
+    msg += `Por favor envíanos tu comprobante y datos de envío por este medio. ¡Tienes 24 hrs! ⏳👗`;
     
-    // Abre WhatsApp para elegir contacto (al no pasar número, WA te pregunta a quién enviarlo)
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -263,7 +264,17 @@ export default function App() {
               <div key={cap.id} style={{...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px'}}>
                 <div>
                   <p style={{margin: 0, fontWeight: 'bold', fontSize: '16px'}}>{cap.cliente}</p>
-                  <p style={{margin: '4px 0 0 0', fontSize: '11px', color: theme.textMuted}}><span style={{backgroundColor: theme.bg, padding: '2px 6px', borderRadius: '4px'}}>Folio: {cap.folio}</span> • {cap.hora}</p>
+               {/* REEMPLAZA DESDE AQUÍ (Fila 267) */}
+      <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px'}}>
+        <span style={{backgroundColor: theme.bg, color: theme.textMuted, padding: '2px 6px', borderRadius: '4px', fontSize: '11px'}}>
+          Folio: {cap.folio}
+        </span>
+        <span style={{color: theme.live, fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '3px'}}>
+          🚚 {cap.metodo}
+        </span>
+      </div>
+      {/* HASTA AQUÍ */}
+              <p style={{margin: '4px 0 0 0', fontSize: '11px', color: theme.textMuted}}><span style={{backgroundColor: theme.bg, padding: '2px 6px', borderRadius: '4px'}}>Folio: {cap.folio}</span> • {cap.hora}</p>
                 </div>
                 <div style={{textAlign: 'right'}}>
                   <p style={{margin: 0, fontWeight: 'bold', fontSize: '20px', color: theme.accent}}>${cap.precio}</p>
@@ -395,3 +406,4 @@ export default function App() {
     </div>
   );
 }
+
