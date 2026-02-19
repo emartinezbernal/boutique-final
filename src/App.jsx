@@ -9,7 +9,7 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
-  // --- ESTADOS DE SESIÓN Y VISTAS ---
+  // --- ESTADOS DE SESIÓN ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -24,8 +24,12 @@ export default function App() {
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [cortes, setCortes] = useState(JSON.parse(localStorage.getItem('cortesPacaPro')) || []);
+  
+  // --- ESTADOS DE BÚSQUEDA (CORREGIDO PARA EVITAR PANTALLA EN BLANCO) ---
+  const [busqueda, setBusqueda] = useState('');
+  const [busquedaAdmin, setBusquedaAdmin] = useState('');
 
-  // --- FORMULARIOS ORIGINALES v15.1 ---
+  // --- FORMULARIOS v15.1 ---
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
   const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
@@ -54,7 +58,7 @@ export default function App() {
     } catch (e) { console.error("Error cargando datos", e); }
   }
 
-  // --- LÓGICA DE NAVEGACIÓN v15.1 ---
+  // --- NAVEGACIÓN Y LOGIN ---
   const intentarEntrarA = (v) => {
     if ((v === 'admin' || v === 'historial') && !isAdmin) {
       setVistaPendiente(v); setMostrandoPad(true);
@@ -67,10 +71,10 @@ export default function App() {
     } else { alert("❌ PIN incorrecto"); setPassInput(''); }
   };
 
-  // --- ESTADÍSTICAS Y REPORTES v15.1 ---
+  // --- ESTADÍSTICAS (LÓGICA v15.1) ---
   const filtrados = useMemo(() => {
-    const vnt = historial.filter(v => v.created_at?.split('T')[0] === fechaConsulta);
-    const gst = gastos.filter(g => g.created_at?.split('T')[0] === fechaConsulta);
+    const vnt = (historial || []).filter(v => v.created_at?.split('T')[0] === fechaConsulta);
+    const gst = (gastos || []).filter(g => g.created_at?.split('T')[0] === fechaConsulta);
     const totalV = vnt.reduce((a, b) => a + (Number(b.total) || 0), 0);
     const totalC = vnt.reduce((a, b) => a + (Number(b.costo_total) || 0), 0);
     const totalG = gst.reduce((a, b) => a + (Number(b.monto) || 0), 0);
@@ -90,7 +94,7 @@ export default function App() {
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
   };
 
-  // --- ACCIONES DE PRODUCTOS ---
+  // --- ACCIONES ---
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
@@ -104,7 +108,7 @@ export default function App() {
       for (const item of carrito) {
         await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
       }
-      window.open(`https://wa.me/?text=${encodeURIComponent(`🛍️ TICKET PACA PRO\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}\n👤 Atendió: ${usuario}`)}`, '_blank');
+      window.open(`https://wa.me/?text=${encodeURIComponent(`🛍️ TICKET PACA PRO\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}`)}`, '_blank');
       setCarrito([]); await obtenerTodo(); setVista('catalogo');
     } catch (e) { alert("Error"); }
   }
@@ -118,7 +122,7 @@ export default function App() {
     } catch (e) { obtenerTodo(); }
   };
 
-  // --- DISEÑO ---
+  // --- ESTILOS ---
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
   const inputS = { width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box', marginBottom: '8px' };
 
@@ -154,9 +158,9 @@ export default function App() {
       <main style={{ padding: '15px', maxWidth: '600px', margin: '0 auto' }}>
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar producto..." onChange={e=>setBusqueda(e.target.value)} style={inputS} />
+            <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={inputS} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {inventario.filter(p => p.stock > 0 && p.nombre?.toLowerCase().includes(busqueda?.toLowerCase() || '')).map(p => (
+              {(inventario || []).filter(p => (p.stock || 0) > 0 && (p.nombre || '').toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={card}>
                   <div style={{fontSize:'9px', color:'#64748b'}}>Paca: {p.paca} | Stock: {p.stock}</div>
                   <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
@@ -202,6 +206,7 @@ export default function App() {
 
             <div style={card}>
               <h3>📦 Gestión de Inventario</h3>
+              <input placeholder="🔍 Filtrar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={inputS} />
               <div style={{overflowX: 'auto'}}>
                 <table style={{width: '100%', fontSize: '10px', textAlign: 'center'}}>
                   <thead>
@@ -210,7 +215,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {inventario.map(p => (
+                    {(inventario || []).filter(p => (p.nombre || '').toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
                       <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
                         <td style={{textAlign:'left'}}>{p.nombre}</td>
                         <td>{p.paca}</td>
