@@ -20,7 +20,12 @@ export default function App() {
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
-  const [busquedaAdmin, setBusquedaAdmin] = useState(''); // Buscador para Gestión
+  
+  // Estados para Filtros de Gestión
+  const [filtroNombre, setFiltroNombre] = useState('');
+  const [filtroPaca, setFiltroPaca] = useState('');
+  const [filtroProv, setFiltroProv] = useState('');
+
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [cortes, setCortes] = useState(JSON.parse(localStorage.getItem('cortesPacaPro')) || []);
@@ -64,18 +69,17 @@ export default function App() {
     } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
-  // --- EDICIÓN INLINE (NUEVA FUNCIÓN) ---
+  // --- EDICIÓN INLINE ---
   const actualizarCampoInline = async (id, campo, valor) => {
     const valorNum = Number(valor);
     if (isNaN(valorNum)) return;
     try {
       const { error } = await supabase.from('productos').update({ [campo]: valorNum }).eq('id', id);
       if (error) throw error;
-      // Actualizar estado local para no recargar todo
       setInventario(inventario.map(p => p.id === id ? { ...p, [campo]: valorNum } : p));
     } catch (e) {
       alert("Error al actualizar");
-      obtenerTodo(); // Revertir si falla
+      obtenerTodo();
     }
   };
 
@@ -96,6 +100,15 @@ export default function App() {
       return { ...p, stockActual: p.stock - enCar };
     });
   }, [inventario, carrito]);
+
+  const inventarioFiltradoAdmin = useMemo(() => {
+    return inventario.filter(p => {
+      const matchNombre = p.nombre.toLowerCase().includes(filtroNombre.toLowerCase());
+      const matchPaca = p.paca.toString().includes(filtroPaca);
+      const matchProv = (p.proveedor || '').toLowerCase().includes(filtroProv.toLowerCase());
+      return matchNombre && matchPaca && matchProv;
+    });
+  }, [inventario, filtroNombre, filtroPaca, filtroProv]);
 
   const filtrados = useMemo(() => {
     const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
@@ -119,7 +132,7 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  // --- WHATSAPP ---
+  // --- ACCIONES ---
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
@@ -156,8 +169,8 @@ export default function App() {
   };
 
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
-  const inputS = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box' };
-  const inputInline = { border: 'none', background: '#f1f5f9', borderRadius: '4px', width: '50px', textAlign: 'center', padding: '4px', fontSize: '12px', fontWeight: 'bold' };
+  const inputS = { width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box', fontSize: '13px' };
+  const inputInline = { border: 'none', background: '#f1f5f9', borderRadius: '4px', width: '45px', textAlign: 'center', padding: '4px', fontSize: '11px', fontWeight: 'bold' };
   const modalWrap = { position: 'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(15,23,42,0.9)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:'20px' };
 
   if (!usuario) {
@@ -254,11 +267,15 @@ export default function App() {
 
             <div style={card}>
               <h3>📦 Gestión de Inventario</h3>
-              <input placeholder="🔍 Buscar para editar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px', marginBottom:'10px'}}>
+                <input placeholder="🔍 Nombre..." value={filtroNombre} onChange={e=>setFiltroNombre(e.target.value)} style={inputS} />
+                <input placeholder="📦 # Paca..." value={filtroPaca} onChange={e=>setFiltroPaca(e.target.value)} style={inputS} />
+                <input placeholder="🏢 Proveedor..." value={filtroProv} onChange={e=>setFiltroProv(e.target.value)} style={{...inputS, gridColumn:'span 2'}} />
+              </div>
               <div style={{overflowX: 'auto'}}>
-                <table style={{width: '100%', fontSize: '11px', textAlign: 'center', borderCollapse: 'collapse'}}>
+                <table style={{width: '100%', fontSize: '10px', textAlign: 'center', borderCollapse: 'collapse'}}>
                   <thead>
-                    <tr style={{background:'#f8fafc'}}>
+                    <tr style={{background:'#f8fafc', color:'#64748b'}}>
                       <th style={{padding:'8px', textAlign:'left'}}>Producto</th>
                       <th style={{padding:'8px'}}>Costo</th>
                       <th style={{padding:'8px'}}>Precio</th>
@@ -266,32 +283,20 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {inventario.filter(p => p.nombre.toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
+                    {inventarioFiltradoAdmin.map(p => (
                       <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
-                        <td style={{padding:'8px', textAlign:'left', fontSize:'10px'}}>{p.nombre}</td>
-                        <td style={{padding:'8px'}}>
-                          <input 
-                            type="number" 
-                            defaultValue={p.costo_unitario} 
-                            onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} 
-                            style={inputInline}
-                          />
+                        <td style={{padding:'8px', textAlign:'left'}}>
+                            <b>{p.nombre}</b><br/>
+                            <span style={{fontSize:'8px', color:'#94a3b8'}}>P:{p.paca} | {p.proveedor}</span>
                         </td>
                         <td style={{padding:'8px'}}>
-                          <input 
-                            type="number" 
-                            defaultValue={p.precio} 
-                            onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} 
-                            style={inputInline}
-                          />
+                          <input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={inputInline}/>
                         </td>
                         <td style={{padding:'8px'}}>
-                          <input 
-                            type="number" 
-                            defaultValue={p.stock} 
-                            onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} 
-                            style={inputInline}
-                          />
+                          <input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={inputInline}/>
+                        </td>
+                        <td style={{padding:'8px'}}>
+                          <input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={inputInline}/>
                         </td>
                       </tr>
                     ))}
