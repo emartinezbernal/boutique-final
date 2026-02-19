@@ -9,24 +9,27 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
-  // --- ESTADOS DE SESIÓN ---
+  // --- ESTADOS DE SESIÓN Y VISTAS ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [mostrandoPad, setMostrandoPad] = useState(false);
   const [passInput, setPassInput] = useState('');
   const [vistaPendiente, setVistaPendiente] = useState(null);
+  const [vista, setVista] = useState('catalogo');
 
   // --- ESTADOS DE DATOS ---
-  const [carrito, setCarrito] = useState([]);
-  const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
-  const [busquedaAdmin, setBusquedaAdmin] = useState('');
+  const [carrito, setCarrito] = useState([]);
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [cortes, setCortes] = useState(JSON.parse(localStorage.getItem('cortesPacaPro')) || []);
-  
+
+  // --- FORMULARIOS ORIGINALES v15.1 ---
+  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
+  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
+
   const obtenerFechaLocal = () => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
@@ -36,13 +39,9 @@ export default function App() {
 
   const hoyStr = useMemo(() => obtenerFechaLocal(), []);
   const [fechaConsulta, setFechaConsulta] = useState(hoyStr);
-  
-  // Formularios
-  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
-  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
-  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
 
   useEffect(() => { if (usuario) obtenerTodo(); }, [usuario]);
+  useEffect(() => { localStorage.setItem('cortesPacaPro', JSON.stringify(cortes)); }, [cortes]);
 
   async function obtenerTodo() {
     try {
@@ -55,38 +54,20 @@ export default function App() {
     } catch (e) { console.error("Error cargando datos", e); }
   }
 
-  // --- LÓGICA DE LOGIN Y NAVEGACIÓN (REPARADA) ---
+  // --- LÓGICA DE NAVEGACIÓN v15.1 ---
   const intentarEntrarA = (v) => {
-    if ((v === 'admin' || v === 'historial')) {
-      if (isAdmin) {
-        setVista(v);
-      } else {
-        setVistaPendiente(v);
-        setMostrandoPad(true);
-      }
-    } else {
-      setVista(v);
-    }
+    if ((v === 'admin' || v === 'historial') && !isAdmin) {
+      setVistaPendiente(v); setMostrandoPad(true);
+    } else { setVista(v); }
   };
 
   const validarClave = () => {
     if (passInput === CLAVE_MAESTRA) {
-      setIsAdmin(true);
-      setVista(vistaPendiente);
-      setMostrandoPad(false);
-      setPassInput('');
-    } else {
-      alert("❌ PIN Incorrecto");
-      setPassInput('');
-    }
+      setIsAdmin(true); setVista(vistaPendiente); setMostrandoPad(false); setPassInput('');
+    } else { alert("❌ PIN incorrecto"); setPassInput(''); }
   };
 
-  const cerrarSesion = () => {
-    localStorage.removeItem('pacaUser');
-    window.location.reload();
-  };
-
-  // --- LÓGICA DE ESTADÍSTICAS (CORREGIDA) ---
+  // --- ESTADÍSTICAS Y REPORTES v15.1 ---
   const filtrados = useMemo(() => {
     const vnt = historial.filter(v => v.created_at?.split('T')[0] === fechaConsulta);
     const gst = gastos.filter(g => g.created_at?.split('T')[0] === fechaConsulta);
@@ -96,19 +77,20 @@ export default function App() {
     return { vnt, gst, totalV, totalG, utilidad: totalV - totalC - totalG };
   }, [historial, gastos, fechaConsulta]);
 
-  const statsProveedores = useMemo(() => {
-    const stats = {};
-    inventario.forEach(p => {
-      const prov = p.proveedor || 'Sin Nombre';
-      if (!stats[prov]) stats[prov] = { stock: 0, inversion: 0, ventaEsperada: 0 };
-      stats[prov].stock += (p.stock || 0);
-      stats[prov].inversion += ((p.stock || 0) * (p.costo_unitario || 0));
-      stats[prov].ventaEsperada += ((p.stock || 0) * (p.precio || 0));
-    });
-    return Object.entries(stats);
-  }, [inventario]);
+  const realizarCorte = () => {
+    const f = window.prompt(`ARQUEO: ¿Dinero físico en caja?`);
+    if (!f) return;
+    const fisico = Number(f);
+    const esperado = filtrados.totalV - filtrados.totalG;
+    const dif = fisico - esperado;
+    const nuevoCorte = { id: Date.now(), fecha: fechaConsulta, ventas: filtrados.totalV, gastos: filtrados.totalG, fisico, diferencia: dif };
+    setCortes([nuevoCorte, ...cortes]);
+    
+    const texto = `*🏁 CORTE FINAL*\n📅: ${fechaConsulta}\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+  };
 
-  // --- ACCIONES ---
+  // --- ACCIONES DE PRODUCTOS ---
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
@@ -123,9 +105,7 @@ export default function App() {
         await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
       }
       window.open(`https://wa.me/?text=${encodeURIComponent(`🛍️ TICKET PACA PRO\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}\n👤 Atendió: ${usuario}`)}`, '_blank');
-      setCarrito([]);
-      await obtenerTodo();
-      setVista('catalogo');
+      setCarrito([]); await obtenerTodo(); setVista('catalogo');
     } catch (e) { alert("Error"); }
   }
 
@@ -141,14 +121,13 @@ export default function App() {
   // --- DISEÑO ---
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
   const inputS = { width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box', marginBottom: '8px' };
-  const inputInline = { border: 'none', background: '#f1f5f9', borderRadius: '4px', width: '50px', textAlign: 'center', padding: '4px', fontSize: '11px', fontWeight: 'bold' };
 
   if (!usuario) {
     return (
       <div style={{ position:'fixed', inset:0, background: '#0f172a', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }}>
         <div style={{ ...card, width: '100%', maxWidth: '320px', textAlign: 'center' }}>
           <h2>📦 PACA PRO</h2>
-          <input placeholder="Nombre de Vendedor" value={tempNombre} onChange={e => setTempNombre(e.target.value)} style={inputS} />
+          <input placeholder="Nombre Vendedor" onChange={e => setTempNombre(e.target.value)} style={inputS} />
           <button onClick={() => { if(tempNombre){ setUsuario(tempNombre); localStorage.setItem('pacaUser', tempNombre); }}} style={{ width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold' }}>ENTRAR</button>
         </div>
       </div>
@@ -160,27 +139,24 @@ export default function App() {
       {mostrandoPad && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
           <div style={{ ...card, width: '280px', textAlign: 'center' }}>
-            <h3>🔐 PIN REQUERIDO</h3>
+            <h3>🔐 PIN ADMINISTRADOR</h3>
             <input type="password" autoFocus style={{ ...inputS, textAlign:'center', fontSize:'24px' }} value={passInput} onChange={e => setPassInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && validarClave()} />
-            <div style={{display:'flex', gap:'5px'}}>
-               <button onClick={()=>setMostrandoPad(false)} style={{flex:1, padding:'10px', borderRadius:'8px', border:'1px solid #ddd'}}>Cancelar</button>
-               <button onClick={validarClave} style={{flex:1, padding:'10px', background:'#10b981', color:'#fff', border:'none', borderRadius:'8px'}}>Entrar</button>
-            </div>
+            <button onClick={validarClave} style={{ width:'100%', padding:'10px', background:'#10b981', color:'#fff', border:'none', borderRadius:'8px' }}>ENTRAR</button>
           </div>
         </div>
       )}
 
-      <header style={{ background: '#0f172a', color: '#fff', padding: '12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+      <header style={{ background: '#0f172a', color: '#fff', padding: '12px', display:'flex', justifyContent:'space-between' }}>
         <h1 style={{ fontSize: '14px', margin: 0 }}>PACA PRO {isAdmin && "⭐"}</h1>
-        <div onClick={cerrarSesion} style={{ fontSize:'10px', background:'#1e293b', padding:'5px 10px', borderRadius:'10px', cursor:'pointer' }}>👤 {usuario} (Salir)</div>
+        <div style={{ fontSize:'11px' }}>👤 {usuario}</div>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '600px', margin: '0 auto' }}>
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={inputS} />
+            <input placeholder="🔍 Buscar producto..." onChange={e=>setBusqueda(e.target.value)} style={inputS} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {inventario.filter(p => (p.stock || 0) > 0 && p.nombre?.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+              {inventario.filter(p => p.stock > 0 && p.nombre?.toLowerCase().includes(busqueda?.toLowerCase() || '')).map(p => (
                 <div key={p.id} style={card}>
                   <div style={{fontSize:'9px', color:'#64748b'}}>Paca: {p.paca} | Stock: {p.stock}</div>
                   <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
@@ -204,7 +180,7 @@ export default function App() {
         {vista === 'admin' && isAdmin && (
           <>
             <div style={card}>
-              <h3>⚡ Nuevo Producto</h3>
+              <h3>⚡ Nuevo Producto (v15.1)</h3>
               <div style={{display:'flex', gap:'5px'}}>
                 <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
                 <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
@@ -226,7 +202,6 @@ export default function App() {
 
             <div style={card}>
               <h3>📦 Gestión de Inventario</h3>
-              <input placeholder="🔍 Filtrar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={inputS} />
               <div style={{overflowX: 'auto'}}>
                 <table style={{width: '100%', fontSize: '10px', textAlign: 'center'}}>
                   <thead>
@@ -235,14 +210,14 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {inventario.filter(p => p.nombre?.toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
+                    {inventario.map(p => (
                       <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
                         <td style={{textAlign:'left'}}>{p.nombre}</td>
                         <td>{p.paca}</td>
                         <td>{p.proveedor}</td>
-                        <td><input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={inputInline} /></td>
-                        <td><input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={inputInline} /></td>
-                        <td><input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={inputInline} /></td>
+                        <td><input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={{width:'40px', border:'none', background:'#f1f5f9'}} /></td>
+                        <td><input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={{width:'40px', border:'none', background:'#f1f5f9'}} /></td>
+                        <td><input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={{width:'40px', border:'none', background:'#f1f5f9'}} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -261,10 +236,11 @@ export default function App() {
                 <div><small>GASTOS</small><h3>${filtrados.totalG}</h3></div>
                 <div><small>UTILIDAD</small><h3 style={{color:'#10b981'}}>${filtrados.utilidad}</h3></div>
               </div>
+              <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'12px', background:'#10b981', border:'none', borderRadius:'10px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
             </div>
 
             <div style={card}>
-              <h3>💸 Registrar Gasto</h3>
+              <h3>💸 Registrar Gasto (v15.1)</h3>
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto) }]);
@@ -281,11 +257,11 @@ export default function App() {
         )}
       </main>
 
-      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'12px', borderRadius:'20px', boxShadow:'0 4px 20px rgba(0,0,0,0.4)' }}>
-        <button onClick={()=>intentarEntrarA('catalogo')} style={{background: 'none', border:'none', fontSize:'24px', opacity: vista === 'catalogo' ? 1 : 0.5}}>📦</button>
-        <button onClick={()=>intentarEntrarA('pos')} style={{background: 'none', border:'none', fontSize:'24px', opacity: vista === 'pos' ? 1 : 0.5}}>🛒</button>
-        <button onClick={()=>intentarEntrarA('admin')} style={{background: 'none', border:'none', fontSize:'24px', opacity: vista === 'admin' ? 1 : 0.5}}>⚡</button>
-        <button onClick={()=>intentarEntrarA('historial')} style={{background: 'none', border:'none', fontSize:'24px', opacity: vista === 'historial' ? 1 : 0.5}}>📈</button>
+      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'12px', borderRadius:'20px' }}>
+        <button onClick={()=>intentarEntrarA('catalogo')} style={{background: 'none', border:'none', fontSize:'24px'}}>📦</button>
+        <button onClick={()=>intentarEntrarA('pos')} style={{background: 'none', border:'none', fontSize:'24px'}}>🛒</button>
+        <button onClick={()=>intentarEntrarA('admin')} style={{background: 'none', border:'none', fontSize:'24px'}}>⚡</button>
+        <button onClick={()=>intentarEntrarA('historial')} style={{background: 'none', border:'none', fontSize:'24px'}}>📈</button>
       </nav>
     </div>
   );
