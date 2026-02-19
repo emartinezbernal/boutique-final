@@ -155,16 +155,43 @@ export default function App() {
   }, [historial, gastos, fechaConsulta]);
 
   const realizarCorte = () => {
-    const f = window.prompt(`¿Efectivo en caja?`);
+    const responsable = window.prompt("¿Quién realiza el corte?");
+    if (!responsable) return;
+    const f = window.prompt(`¿Efectivo físico en caja?`);
     if (f === null) return;
+    
     const fisico = Number(f);
     const esperado = filtrados.totalV - filtrados.totalG;
     const dif = fisico - esperado;
     const timestamp = new Date().toLocaleString();
-    const nuevoCorte = { id: Date.now(), fechaFiltro: fechaConsulta, timestamp, reportado: fisico, diferencia: dif };
-    setCortes([...cortes, nuevoCorte]);
-    localStorage.setItem('cortesPacaPro', JSON.stringify([...cortes, nuevoCorte]));
-    alert("Corte realizado y guardado.");
+    
+    const nuevoCorte = { 
+        id: Date.now(), 
+        fechaFiltro: fechaConsulta, 
+        timestamp, 
+        reportado: fisico, 
+        diferencia: dif,
+        responsable: responsable.toUpperCase() 
+    };
+
+    const nuevosCortes = [nuevoCorte, ...cortes];
+    setCortes(nuevosCortes);
+    localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
+
+    // REPORTE WHATSAPP
+    let msg = `*🏁 REPORTE CIERRE - PACA PRO*\n`;
+    msg += `📅 Fecha: ${fechaConsulta}\n`;
+    msg += `👤 Responsable: *${nuevoCorte.responsable}*\n`;
+    msg += `--------------------------\n`;
+    msg += `💰 Ventas Totales: *$${filtrados.totalV}*\n`;
+    msg += `📉 Gastos Totales: *$${filtrados.totalG}*\n`;
+    msg += `💵 Esperado en Caja: *$${esperado}*\n`;
+    msg += `--------------------------\n`;
+    msg += `✅ Efectivo Físico: *$${fisico}*\n`;
+    msg += `⚖️ Diferencia: *${dif >= 0 ? '+' : ''}$${dif}*`;
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    alert("Corte realizado, guardado y reporte generado.");
   };
 
   async function finalizarVenta() {
@@ -318,14 +345,45 @@ export default function App() {
         )}
 
         {vista === 'historial' && (
-          <div style={cardStyle}>
-            <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{...inputStyle, marginBottom:'15px'}} />
-            <div style={{display:'flex', justifyContent:'space-around'}}>
-              <div><p style={{margin:0, fontSize:'10px'}}>VENTAS</p><h3>${filtrados.totalV}</h3></div>
-              <div><p style={{margin:0, fontSize:'10px'}}>UTILIDAD</p><h3 style={{color:theme.accent}}>${filtrados.utilidad}</h3></div>
+          <>
+            <div style={cardStyle}>
+              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{...inputStyle, marginBottom:'15px'}} />
+              <div style={{display:'flex', justifyContent:'space-around'}}>
+                <div><p style={{margin:0, fontSize:'10px'}}>VENTAS</p><h3>${filtrados.totalV}</h3></div>
+                <div><p style={{margin:0, fontSize:'10px'}}>UTILIDAD</p><h3 style={{color:theme.accent}}>${filtrados.utilidad}</h3></div>
+              </div>
+              <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:theme.accent, borderRadius:'8px', color:'#fff', border:'none'}}>CORTE DE CAJA 🏁</button>
             </div>
-            <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:theme.accent, borderRadius:'8px', color:'#fff', border:'none'}}>CORTE DE CAJA 🏁</button>
-          </div>
+
+            {/* TABLA DE REGISTRO DE CORTES DIARIOS */}
+            <div style={cardStyle}>
+              <h3 style={{fontSize:'12px', marginTop:0, color:theme.textMuted}}>📋 HISTORIAL DE CORTES DIARIOS</h3>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%', fontSize:'10px', borderCollapse:'collapse'}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${theme.border}`, color:theme.textMuted}}>
+                      <th style={{textAlign:'left', padding:'5px'}}>Fecha/Hora</th>
+                      <th style={{textAlign:'left', padding:'5px'}}>Responsable</th>
+                      <th style={{textAlign:'right', padding:'5px'}}>Físico</th>
+                      <th style={{textAlign:'right', padding:'5px'}}>Dif.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cortes.filter(c => c.fechaFiltro === fechaConsulta).map((c) => (
+                      <tr key={c.id} style={{borderBottom:`1px solid ${theme.border}`}}>
+                        <td style={{padding:'5px'}}>{c.timestamp.split(', ')[1]}</td>
+                        <td style={{padding:'5px'}}>{c.responsable}</td>
+                        <td style={{textAlign:'right', padding:'5px'}}>${c.reportado}</td>
+                        <td style={{textAlign:'right', padding:'5px', color: c.diferencia < 0 ? theme.danger : theme.accent}}>
+                          {c.diferencia >= 0 ? '+' : ''}${c.diferencia}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
       </main>
 
