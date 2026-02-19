@@ -19,6 +19,10 @@ const theme = {
 };
 
 export default function App() {
+  // NUEVO ESTADO PARA LOGIN
+  const [usuarioActual, setUsuarioActual] = useState(localStorage.getItem('userPacaPro') || '');
+  const [inputLogin, setInputLogin] = useState('');
+
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('live'); 
   const [inventario, setInventario] = useState([]);
@@ -49,10 +53,12 @@ export default function App() {
   const inputNombreRef = useRef(null);
 
   useEffect(() => { 
-    obtenerTodo(); 
-    const cortesGuardados = localStorage.getItem('cortesPacaPro');
-    if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
-  }, []);
+    if (usuarioActual) {
+      obtenerTodo(); 
+      const cortesGuardados = localStorage.getItem('cortesPacaPro');
+      if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
+    }
+  }, [usuarioActual]);
 
   async function obtenerTodo() {
     const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
@@ -62,6 +68,21 @@ export default function App() {
     const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
     if (g) setGastos(g);
   }
+
+  // Lógica de Login
+  const manejarLogin = (e) => {
+    e.preventDefault();
+    if (inputLogin.trim()) {
+      const user = inputLogin.trim().toUpperCase();
+      setUsuarioActual(user);
+      localStorage.setItem('userPacaPro', user);
+    }
+  };
+
+  const cerrarSesion = () => {
+    localStorage.removeItem('userPacaPro');
+    setUsuarioActual('');
+  };
 
   // --- LÓGICA LIVE ACTUALIZADA ---
   const registrarCapturaLive = async (precio) => {
@@ -155,8 +176,6 @@ export default function App() {
   }, [historial, gastos, fechaConsulta]);
 
   const realizarCorte = () => {
-    const responsable = window.prompt("¿Quién realiza el corte?");
-    if (!responsable) return;
     const f = window.prompt(`¿Efectivo físico en caja?`);
     if (f === null) return;
     
@@ -171,7 +190,7 @@ export default function App() {
         timestamp, 
         reportado: fisico, 
         diferencia: dif,
-        responsable: responsable.toUpperCase() 
+        responsable: usuarioActual 
     };
 
     const nuevosCortes = [nuevoCorte, ...cortes];
@@ -180,7 +199,7 @@ export default function App() {
 
     let msg = `*🏁 REPORTE CIERRE - PACA PRO*\n`;
     msg += `📅 Fecha: ${fechaConsulta}\n`;
-    msg += `👤 Responsable: *${nuevoCorte.responsable}*\n`;
+    msg += `👤 Responsable: *${usuarioActual}*\n`;
     msg += `--------------------------\n`;
     msg += `💰 Ventas Totales: *$${filtrados.totalV}*\n`;
     msg += `📉 Gastos Totales: *$${filtrados.totalG}*\n`;
@@ -190,14 +209,11 @@ export default function App() {
     msg += `⚖️ Diferencia: *${dif >= 0 ? '+' : ''}$${dif}*`;
 
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-    alert("Corte realizado, guardado y reporte generado.");
+    alert("Corte realizado y reporte enviado.");
   };
 
   async function finalizarVenta() {
     if (carrito.length === 0) return;
-    const responsable = window.prompt("¿Nombre del Vendedor?");
-    if (!responsable) return;
-    
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
     if (!m) return;
     let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
@@ -208,24 +224,21 @@ export default function App() {
     const hora = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
     try {
-      // 1. Registrar en Supabase (Añadimos Vendedor y Hora al detalle para el historial)
       await supabase.from('ventas').insert([{ 
         total: tv, 
         costo_total: cv, 
-        detalles: `🛒 [${folioVenta}] Vendedor: ${responsable.toUpperCase()} | Pago: ${mTxt} | Hora: ${hora} | Productos: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
+        detalles: `🛒 [${folioVenta}] Vendedor: ${usuarioActual} | Pago: ${mTxt} | Hora: ${hora} | Productos: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
       }]);
 
-      // 2. Descontar Inventario
       for (const item of carritoAgrupado) {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
 
-      // 3. Generar Ticket WhatsApp
       let ticketMsg = `*🛍️ TICKET DE COMPRA - PACA PRO*\n`;
       ticketMsg += `--------------------------\n`;
       ticketMsg += `🆔 Folio: *${folioVenta}*\n`;
-      ticketMsg += `👤 Vendedor: *${responsable.toUpperCase()}*\n`;
+      ticketMsg += `👤 Vendedor: *${usuarioActual}*\n`;
       ticketMsg += `📅 Fecha: ${new Date().toLocaleDateString()} | ${hora}\n`;
       ticketMsg += `💳 Pago: *${mTxt}*\n`;
       ticketMsg += `--------------------------\n`;
@@ -257,10 +270,36 @@ export default function App() {
   const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text, boxSizing: 'border-box' };
   const btnClass = "btn-interactivo";
 
+  // --- PANTALLA LOGIN ---
+  if (!usuarioActual) {
+    return (
+      <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
+        <div style={{ ...cardStyle, width: '100%', maxWidth: '350px', textAlign: 'center' }}>
+          <h1 style={{ color: theme.accent, fontSize: '24px', marginBottom: '10px' }}>PACA PRO ⚡</h1>
+          <p style={{ color: theme.textMuted, fontSize: '14px', marginBottom: '20px' }}>Ingresa tu nombre para comenzar</p>
+          <form onSubmit={manejarLogin}>
+            <input 
+              autoFocus
+              placeholder="Nombre de Usuario" 
+              value={inputLogin} 
+              onChange={e => setInputLogin(e.target.value)} 
+              style={{ ...inputStyle, textAlign: 'center', fontSize: '18px', marginBottom: '15px' }} 
+            />
+            <button className={btnClass} style={{ width: '100%', padding: '15px', background: theme.accent, color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>ENTRAR</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: 'sans-serif', backgroundColor: theme.bg, color: theme.text, minHeight: '100vh', paddingBottom: '100px' }}>
-      <header style={{ background: theme.card, padding: '15px', textAlign: 'center', borderBottom: `1px solid ${theme.border}` }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color: theme.accent}}>v15 LIVE</span></h1>
+      <header style={{ background: theme.card, padding: '10px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${theme.border}` }}>
+        <h1 style={{margin:0, fontSize:'14px'}}>PACA PRO <span style={{color: theme.accent}}>v15</span></h1>
+        <div style={{ display:'flex', alignItems:'center', gap: '10px'}}>
+           <span style={{ fontSize: '10px', color: theme.textMuted }}>👤 {usuarioActual}</span>
+           <button onClick={cerrarSesion} style={{ background: 'none', border: 'none', color: theme.danger, fontSize: '10px' }}>SALIR</button>
+        </div>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -389,7 +428,6 @@ export default function App() {
               <button className={btnClass} onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:theme.accent, borderRadius:'8px', color:'#fff', border:'none'}}>CORTE DE CAJA 🏁</button>
             </div>
 
-            {/* NUEVO: REGISTRO DETALLADO DE VENTAS */}
             <div style={cardStyle}>
               <h3 style={{fontSize:'12px', marginTop:0, color:theme.textMuted}}>🧾 REGISTRO DETALLADO DE VENTAS</h3>
               <div style={{overflowX:'auto'}}>
