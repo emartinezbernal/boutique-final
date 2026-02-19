@@ -34,8 +34,11 @@ export default function App() {
 
   const hoyStr = useMemo(() => obtenerFechaLocal(), []);
   const [fechaConsulta, setFechaConsulta] = useState(hoyStr);
+  
+  // Formulario v15.1
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
   const inputNombreRef = useRef(null);
 
   useEffect(() => { if (usuario) obtenerTodo(); }, [usuario]);
@@ -65,28 +68,7 @@ export default function App() {
     } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
-  // --- EDICIÓN INLINE ---
-  const actualizarCampoInline = async (id, campo, valor) => {
-    const valorNum = Number(valor);
-    if (isNaN(valorNum) && campo !== 'nombre') return;
-    try {
-      const { error } = await supabase.from('productos').update({ [campo]: campo === 'nombre' ? valor : valorNum }).eq('id', id);
-      if (error) throw error;
-      setInventario(inventario.map(p => p.id === id ? { ...p, [campo]: campo === 'nombre' ? valor : valorNum } : p));
-    } catch (e) {
-      alert("Error al actualizar");
-      obtenerTodo();
-    }
-  };
-
-  // --- CÁLCULOS ---
-  const inventarioReal = useMemo(() => {
-    return (inventario || []).map(p => {
-      const enCar = carrito.filter(item => item.id === p.id).length;
-      return { ...p, stockActual: (p.stock || 0) - enCar };
-    });
-  }, [inventario, carrito]);
-
+  // --- LÓGICA ESTADÍSTICAS (IGUAL A v15.1) ---
   const filtrados = useMemo(() => {
     const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
     const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
@@ -109,23 +91,49 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  // --- WHATSAPP ---
+  // --- ACCIONES ---
+  const realizarCorte = () => {
+    const f = window.prompt(`ARQUEO: ¿Dinero físico en caja?`);
+    if (!f) return;
+    const fisico = Number(f);
+    const esperado = filtrados.totalV - filtrados.totalG;
+    const dif = fisico - esperado;
+    const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    const nuevoCorte = { id: Date.now(), fecha: fechaConsulta, hora: hora, vendedor: usuario, ventas: filtrados.totalV, gastos: filtrados.totalG, fisico: fisico, diferencia: dif };
+    setCortes([nuevoCorte, ...cortes]);
+    
+    const texto = `*🏁 CORTE FINAL*\n📅: ${fechaConsulta}\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+  };
+
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
     if (!m) return;
     let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
     const totalV = carrito.reduce((a, b) => a + (b.precio || 0), 0);
+    const costoV = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
     const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    
     try {
-      await supabase.from('ventas').insert([{ total: totalV, vendedor: usuario, detalles: mTxt }]);
+      await supabase.from('ventas').insert([{ total: totalV, costo_total: costoV, vendedor: usuario, detalles: mTxt }]);
       for (const item of carrito) {
         await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
       }
-      window.open(`https://wa.me/?text=${encodeURIComponent(`🛍️ TICKET PACA PRO\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}\n👤 Atendió: ${usuario}`)}`, '_blank');
+      const ticket = `*🛍️ TICKET PACA PRO*\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}\n👤 Atendió: ${usuario}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(ticket)}`, '_blank');
       setCarrito([]); obtenerTodo(); setVista('catalogo');
     } catch (e) { alert("Error"); }
   }
+
+  const actualizarCampoInline = async (id, campo, valor) => {
+    const valorNum = Number(valor);
+    if (isNaN(valorNum)) return;
+    try {
+      await supabase.from('productos').update({ [campo]: valorNum }).eq('id', id);
+      setInventario(inventario.map(p => p.id === id ? { ...p, [campo]: valorNum } : p));
+    } catch (e) { obtenerTodo(); }
+  };
 
   // --- ESTILOS ---
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
@@ -149,8 +157,8 @@ export default function App() {
       {mostrandoPad && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
           <div style={{ ...card, width: '280px', textAlign: 'center' }}>
-            <h3>🔐 Acceso Admin</h3>
-            <input type="password" autoFocus style={{ ...inputS, textAlign:'center' }} value={passInput} onChange={e => setPassInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && validarClave()} />
+            <h3>🔐 PIN ADMINISTRADOR</h3>
+            <input type="password" autoFocus style={{ ...inputS, textAlign:'center', fontSize:'24px' }} value={passInput} onChange={e => setPassInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && validarClave()} />
             <button onClick={validarClave} style={{ width:'100%', padding:'10px', background:'#10b981', color:'#fff', border:'none', borderRadius:'8px' }}>ENTRAR</button>
           </div>
         </div>
@@ -166,9 +174,9 @@ export default function App() {
           <>
             <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={inputS} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {inventarioReal.filter(p => (p.stockActual || 0) > 0 && p.nombre?.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+              {inventario.filter(p => (p.stock || 0) > 0 && p.nombre?.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={card}>
-                  <div style={{fontSize:'9px', color:'#64748b'}}>Paca: {p.paca} | Stock: {p.stockActual}</div>
+                  <div style={{fontSize:'9px', color:'#64748b'}}>Paca: {p.paca} | Stock: {p.stock}</div>
                   <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
                   <p style={{fontSize:'18px', fontWeight:'bold'}}>${p.precio}</p>
                   <button onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', padding:'8px', background:'#0f172a', color:'#10b981', border:'none', borderRadius:'8px'}}>AÑADIR</button>
@@ -190,7 +198,7 @@ export default function App() {
         {vista === 'admin' && isAdmin && (
           <>
             <div style={card}>
-              <h3>⚡ Nuevo Producto</h3>
+              <h3>⚡ Nuevo Producto (v15.1)</h3>
               <div style={{display:'flex', gap:'5px'}}>
                 <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
                 <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
@@ -206,62 +214,82 @@ export default function App() {
                   <input type="number" placeholder="Precio" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
                   <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
                 </div>
-                <button style={{width:'100%', padding:'12px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px'}}>REGISTRAR PRODUCTO</button>
+                <button style={{width:'100%', padding:'12px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px'}}>REGISTRAR</button>
               </form>
             </div>
 
             <div style={card}>
-              <h3>📦 Gestión de Inventario</h3>
-              <input placeholder="🔍 Filtrar por nombre..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={inputS} />
+              <h3>📦 Gestión de Inventario (Con Paca y Prov)</h3>
+              <input placeholder="🔍 Filtrar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={inputS} />
               <div style={{overflowX: 'auto'}}>
-                <table style={{width: '100%', fontSize: '11px', textAlign: 'center', borderCollapse: 'collapse'}}>
+                <table style={{width: '100%', fontSize: '10px', textAlign: 'center'}}>
                   <thead>
                     <tr style={{background:'#f8fafc'}}>
-                      <th style={{padding:'8px', textAlign:'left'}}>Producto</th>
-                      <th style={{padding:'8px'}}>Paca</th>
-                      <th style={{padding:'8px'}}>Proveedor</th>
-                      <th style={{padding:'8px'}}>Costo</th>
-                      <th style={{padding:'8px'}}>Precio</th>
-                      <th style={{padding:'8px'}}>Stock</th>
+                      <th>Producto</th><th>Paca</th><th>Prov</th><th>Costo</th><th>Precio</th><th>Stock</th>
                     </tr>
                   </thead>
                   <tbody>
                     {inventario.filter(p => p.nombre?.toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
                       <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
-                        <td style={{padding:'8px', textAlign:'left'}}>{p.nombre}</td>
-                        <td style={{padding:'8px'}}>{p.paca || '-'}</td>
-                        <td style={{padding:'8px'}}>{p.proveedor || '-'}</td>
-                        <td style={{padding:'8px'}}><input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={inputInline} /></td>
-                        <td style={{padding:'8px'}}><input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={inputInline} /></td>
-                        <td style={{padding:'8px'}}><input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={inputInline} /></td>
+                        <td style={{textAlign:'left'}}>{p.nombre}</td>
+                        <td>{p.paca}</td>
+                        <td>{p.proveedor}</td>
+                        <td><input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={inputInline} /></td>
+                        <td><input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={inputInline} /></td>
+                        <td><input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={inputInline} /></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
+          </>
+        )}
+
+        {vista === 'historial' && isAdmin && (
+          <>
+            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
+              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'10px', borderRadius:'10px', width:'100%', textAlign:'center'}} />
+              <div style={{display:'flex', justifyContent:'space-around', marginTop:'15px'}}>
+                <div><small>VENTAS</small><h3>${filtrados.totalV}</h3></div>
+                <div><small>GASTOS</small><h3>${filtrados.totalG}</h3></div>
+                <div><small>UTILIDAD</small><h3 style={{color:'#10b981'}}>${filtrados.utilidad}</h3></div>
+              </div>
+              <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'12px', background:'#10b981', border:'none', borderRadius:'10px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
+            </div>
 
             <div style={card}>
-                <h3 style={{fontSize:'13px'}}>📊 Inversión por Proveedor</h3>
+              <h3>💸 Registrar Gasto (v15.1)</h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto) }]);
+                setNuevoGasto({ concepto: '', monto: '' }); obtenerTodo();
+              }}>
+                <div style={{display:'flex', gap:'5px'}}>
+                  <input placeholder="Concepto" value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
+                  <input type="number" placeholder="Monto" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={inputS} required />
+                </div>
+                <button style={{width:'100%', padding:'10px', background:'#ef4444', color:'#fff', border:'none', borderRadius:'10px'}}>REGISTRAR GASTO</button>
+              </form>
+            </div>
+
+            <div style={card}>
+                <h3>🏢 Inversión por Proveedor</h3>
                 <table style={{width:'100%', fontSize:'11px'}}>
-                    <thead><tr><th>Prov.</th><th>Stock</th><th>Inv.</th></tr></thead>
+                    <thead><tr><th>Prov.</th><th>Pzs</th><th>Inversión</th><th>Venta Est.</th></tr></thead>
                     <tbody>
                         {statsProveedores.map(([n, s]) => (
-                            <tr key={n}><td>{n}</td><td>{s.stock}</td><td>${s.inversion.toFixed(0)}</td></tr>
+                            <tr key={n} style={{borderBottom:'1px solid #eee'}}>
+                                <td style={{padding:'5px 0'}}>{n}</td>
+                                <td>{s.stock}</td>
+                                <td>${s.inversion.toFixed(0)}</td>
+                                <td style={{color:'#10b981'}}>${s.ventaEsperada.toFixed(0)}</td>
+                            </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
           </>
-        )}
-
-        {vista === 'historial' && isAdmin && (
-          <div style={card}>
-            <h3>📉 Reporte Diario</h3>
-            <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={inputS} />
-            <p>Ventas Hoy: <b>${filtrados.totalV}</b></p>
-            <p>Utilidad Estimada: <b>${filtrados.utilidad}</b></p>
-          </div>
         )}
       </main>
 
