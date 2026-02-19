@@ -9,7 +9,7 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
-  // --- ESTADOS DE SESIÓN ---
+  // --- ESTADOS DE SESIÓN Y VISTAS ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -24,7 +24,7 @@ export default function App() {
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
-  const [cortes, setCortes] = useState([]);
+  const [cortes, setCortes] = useState(JSON.parse(localStorage.getItem('cortesPacaPro')) || []);
   
   const obtenerFechaLocal = () => {
     const d = new Date();
@@ -41,12 +41,12 @@ export default function App() {
   const inputNombreRef = useRef(null);
 
   useEffect(() => { 
-    if (usuario) {
-        obtenerTodo(); 
-        const cortesGuardados = localStorage.getItem('cortesPacaPro');
-        if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
-    }
+    if (usuario) { obtenerTodo(); }
   }, [usuario]);
+
+  useEffect(() => {
+    localStorage.setItem('cortesPacaPro', JSON.stringify(cortes));
+  }, [cortes]);
 
   async function obtenerTodo() {
     const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
@@ -57,7 +57,6 @@ export default function App() {
     if (g) setGastos(g);
   }
 
-  // --- LÓGICA DE ACCESO ---
   const intentarEntrarA = (v) => {
     if ((v === 'admin' || v === 'historial') && !isAdmin) {
       setVistaPendiente(v); setMostrandoPad(true);
@@ -70,7 +69,7 @@ export default function App() {
     } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
-  // --- CÁLCULOS Y ESTADÍSTICAS ---
+  // --- CÁLCULOS ---
   const carritoAgrupado = useMemo(() => {
     const grupos = {};
     carrito.forEach(item => {
@@ -110,7 +109,7 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  // --- WHATSAPP TICKETS & CORTES ---
+  // --- ACCIONES WHATSAPP Y REGISTRO ---
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
@@ -121,16 +120,14 @@ export default function App() {
     const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
     try {
-      const { data } = await supabase.from('ventas').insert([{ total: totalV, costo_total: costoV, vendedor: usuario, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
+      await supabase.from('ventas').insert([{ total: totalV, costo_total: costoV, vendedor: usuario, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
       for (const item of carritoAgrupado) {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
-      
       let ticket = `*🛍️ TICKET PACA PRO*\n📅 ${hoyStr} | 🕒 ${hora}\n👤 Atendió: ${usuario}\n--------------------------\n`;
       carritoAgrupado.forEach(i => { ticket += `▪️ ${i.nombre} x${i.cantCar}: $${i.subtotal.toFixed(2)}\n`; });
       ticket += `--------------------------\n💰 *TOTAL: $${totalV.toFixed(2)}*\n💳 Pago: ${mTxt}`;
-      
       window.open(`https://wa.me/?text=${encodeURIComponent(ticket)}`, '_blank');
       setCarrito([]); obtenerTodo(); setVista('catalogo');
     } catch (e) { alert("Error"); }
@@ -144,11 +141,23 @@ export default function App() {
     const dif = fisico - esperado;
     const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     
+    // Guardar registro interno
+    const nuevoCorte = {
+      id: Date.now(),
+      fecha: fechaConsulta,
+      hora: hora,
+      vendedor: usuario,
+      ventas: filtrados.totalV,
+      gastos: filtrados.totalG,
+      fisico: fisico,
+      diferencia: dif
+    };
+    setCortes([nuevoCorte, ...cortes]);
+
     const texto = `*🏁 CORTE FINAL*\n📅: ${fechaConsulta}\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
   };
 
-  // --- COMPONENTES DE ESTILO ---
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
   const inputS = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box' };
   const modalWrap = { position: 'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(15,23,42,0.9)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:'20px' };
@@ -257,49 +266,8 @@ export default function App() {
             </div>
 
             <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0}}>💸 Gastos del Día</h3>
-              <form onSubmit={async (e)=>{
-                  e.preventDefault();
-                  await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto), vendedor: usuario }]);
-                  setNuevoGasto({ concepto: '', monto: '' }); obtenerTodo();
-              }} style={{display:'flex', gap:'5px', marginBottom:'15px'}}>
-                <input placeholder="Concepto" value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
-                <input type="number" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
-                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
-              </form>
-              {filtrados.gst.map((g, i) => (
-                <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'12px', padding:'5px 0', borderBottom:'1px solid #f1f5f9'}}>
-                  <span>{g.concepto}</span><b style={{color:'#ef4444'}}>-${Number(g.monto).toFixed(2)}</b>
-                </div>
-              ))}
-            </div>
-            
-            <div style={card}>
-                <h3 style={{fontSize:'13px', marginTop:0}}>📊 Inversión por Proveedor</h3>
-                <table style={{width:'100%', fontSize:'11px', textAlign:'left'}}>
-                    <thead><tr style={{color:'#64748b'}}><th>Prov.</th><th>Stock</th><th>Inv.</th><th>Est.</th></tr></thead>
-                    <tbody>
-                        {statsProveedores.map(([n, s]) => (
-                            <tr key={n} style={{borderBottom:'1px solid #f1f5f9'}}>
-                                <td style={{padding:'8px 0'}}>{n}</td>
-                                <td>{s.stock} pzs</td>
-                                <td>${s.inversion.toFixed(0)}</td>
-                                <td style={{color:'#10b981'}}>${s.ventaEsperada.toFixed(0)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-          </>
-        )}
-      </main>
-
-      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'12px', borderRadius:'20px' }}>
-        <button onClick={()=>intentarEntrarA('catalogo')} style={{background: vista==='catalogo'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📦</button>
-        <button onClick={()=>intentarEntrarA('pos')} style={{background: vista==='pos'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative'}}>🛒 {carrito.length>0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'#fff', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
-        <button onClick={()=>intentarEntrarA('admin')} style={{background: vista==='admin'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', opacity: isAdmin?1:0.4}}>⚡</button>
-        <button onClick={()=>intentarEntrarA('historial')} style={{background: vista==='historial'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', opacity: isAdmin?1:0.4}}>📈</button>
-      </nav>
-    </div>
-  );
-}
+              <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📅 Historial de Cierres</h3>
+              <div style={{maxHeight:'150px', overflowY:'auto'}}>
+                {cortes.filter(c => c.fecha === fechaConsulta).map(c => (
+                  <div key={c.id} style={{fontSize:'11px', padding:'10px', borderBottom:'1px solid #eee', background:'#fdfdfd'}}>
+                    <b>{c.hora}</b> | Ventas: ${c.ventas} | Gastos: ${c.gastos} | <b>Caja: ${c.fisico}</b> (Dif: <span style={{color:
