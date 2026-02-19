@@ -52,14 +52,14 @@ export default function App() {
     });
   }, [inventario, carrito]);
 
-  const statsDia = useMemo(() => {
-    const fechaFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
-    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fechaFiltro);
-    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fechaFiltro);
+  const filtrados = useMemo(() => {
+    const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
+    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
+    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fFiltro);
     const totalV = vnt.reduce((a, b) => a + (b.total || 0), 0);
     const totalC = vnt.reduce((a, b) => a + (b.costo_total || 0), 0);
     const totalG = gst.reduce((a, b) => a + Number(b.monto || 0), 0);
-    return { totalV, totalG, utilidad: totalV - totalC - totalG, ventasCount: vnt.length };
+    return { vnt, gst, totalV, totalG, utilidad: totalV - totalC - totalG, ventasCount: vnt.length };
   }, [historial, gastos, fechaConsulta]);
 
   const statsProveedores = useMemo(() => {
@@ -74,7 +74,6 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  // Busca el último corte registrado para la fecha consultada
   const corteDelDia = useMemo(() => {
     const cortesFiltrados = cortes.filter(c => c.fechaFiltro === fechaConsulta);
     return cortesFiltrados.length > 0 ? cortesFiltrados[cortesFiltrados.length - 1] : null;
@@ -88,35 +87,36 @@ export default function App() {
     const f = window.prompt(`ARQUEO: ¿Cuánto dinero hay físicamente en caja?`);
     if (f === null) return;
     const fisico = Number(f);
-    const esperado = statsDia.totalV - statsDia.totalG;
+    const esperado = filtrados.totalV - filtrados.totalG;
     const dif = fisico - esperado;
     
-    // Guardar el corte localmente
-    const nuevoCorte = {
-      id: Date.now(),
-      fechaFiltro: fechaConsulta,
-      timestamp: new Date().toLocaleString(),
-      reportado: fisico,
-      diferencia: dif,
-      esperado: esperado
-    };
+    const timestamp = new Date().toLocaleString();
+    const nuevoCorte = { id: Date.now(), fechaFiltro: fechaConsulta, timestamp, reportado: fisico, diferencia: dif };
     
     const nuevosCortes = [...cortes, nuevoCorte];
     setCortes(nuevosCortes);
     localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
 
-    let msg = `*🏁 CORTE DE CAJA - PACA PRO*\n📅 Fecha: ${fechaConsulta}\n`;
+    // GENERACIÓN DEL REPORTE FULL PARA WHATSAPP
+    let msg = `*🏁 REPORTE DE CIERRE - PACA PRO*\n`;
+    msg += `📅 Fecha: ${fechaConsulta}\n`;
+    msg += `⏰ Corte: ${timestamp.split(', ')[1]}\n`;
     msg += `--------------------------\n`;
-    msg += `💰 Venta Bruta: $${statsDia.totalV.toFixed(2)}\n`;
-    msg += `💸 Gastos: $${statsDia.totalG.toFixed(2)}\n`;
-    msg += `📈 Utilidad Neta: $${statsDia.utilidad.toFixed(2)}\n`;
+    msg += `💰 Venta Bruta: *$${filtrados.totalV.toFixed(2)}*\n`;
+    msg += `📉 Gastos Totales: *$${filtrados.totalG.toFixed(2)}*\n`;
+    msg += `📈 Utilidad Neta: *$${filtrados.utilidad.toFixed(2)}*\n`;
     msg += `--------------------------\n`;
-    msg += `💵 Dinero en Caja: $${fisico.toFixed(2)}\n`;
-    msg += `⚖️ Diferencia: $${dif.toFixed(2)}\n`;
-    msg += `📦 Ventas Realizadas: ${statsDia.ventasCount}\n`;
-    msg += `--------------------------\nReporte generado automáticamente.`;
-    
-    if (window.confirm("Corte registrado con éxito. ¿Enviar reporte por WhatsApp?")) {
+    msg += `💸 *DETALLE DE GASTOS:*\n`;
+    if (filtrados.gst.length > 0) {
+      filtrados.gst.forEach(g => { msg += `• ${g.concepto}: $${Number(g.monto).toFixed(2)}\n`; });
+    } else { msg += `• Sin gastos registrados\n`; }
+    msg += `--------------------------\n`;
+    msg += `💵 Efectivo en Caja: *$${fisico.toFixed(2)}*\n`;
+    msg += `⚖️ Diferencia: *${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}*\n`;
+    msg += `📦 Ventas: ${filtrados.ventasCount}\n`;
+    msg += `--------------------------\n`;
+
+    if (window.confirm("Corte guardado. ¿Enviar reporte DETALLADO a WhatsApp?")) {
       enviarWhatsapp(msg);
     }
   };
@@ -129,23 +129,13 @@ export default function App() {
     const tv = carrito.reduce((a, b) => a + b.precio, 0);
     const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
     try {
-      const { error: errV } = await supabase.from('ventas').insert([{ 
-        total: tv, costo_total: cv, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
-      }]);
-      if (errV) throw errV;
-
+      await supabase.from('ventas').insert([{ total: tv, costo_total: cv, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
       for (const item of carritoAgrupado) {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
-      
-      let msg = `*🛍️ RECIBO PACA PRO*\n📅 ${new Date().toLocaleDateString()}\n--------------------------\n`;
-      carritoAgrupado.forEach(i => { msg += `• ${i.nombre} (x${i.cantCar}): *$${i.subtotal.toFixed(2)}*\n`; });
-      msg += `--------------------------\n*PAGO:* ${mTxt.toUpperCase()}\n*TOTAL: $${tv.toFixed(2)}*\n--------------------------\n¡Gracias! ✨`;
-      
-      if (window.confirm(`Venta: $${tv.toFixed(2)}. ¿Enviar recibo por WhatsApp?`)) enviarWhatsapp(msg);
       setCarrito([]); await obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error al procesar la venta"); }
+    } catch (e) { alert("Error"); }
   }
 
   async function guardarTurbo(e) {
@@ -169,7 +159,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v13.8 TICKET</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v14.0 AUDITORÍA</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -229,35 +219,42 @@ export default function App() {
         {vista === 'historial' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <label style={{fontSize:'10px', display:'block', marginBottom:'5px', color:'#94a3b8'}}>CONSULTAR FECHA:</label>
               <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'1px solid #334155', padding:'8px', borderRadius:'8px', marginBottom:'10px', textAlign:'center'}} />
               <div style={{display:'flex', justifyContent:'space-around', marginTop:'5px'}}>
-                <div>
-                  <p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA BRUTA</p>
-                  <h3 style={{margin:0}}>${statsDia.totalV.toFixed(2)}</h3>
-                </div>
-                <div>
-                  <p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD NETA</p>
-                  <h3 style={{margin:0}}>${statsDia.utilidad.toFixed(2)}</h3>
-                </div>
+                <div><p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA BRUTA</p><h3>${filtrados.totalV.toFixed(2)}</h3></div>
+                <div><p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD NETA</p><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
               </div>
               <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
             </div>
 
-            {/* SECCIÓN NUEVA: MOSTRAR DETALLES DEL ÚLTIMO CORTE DEL DÍA */}
             {corteDelDia && (
               <div style={{...card, borderLeft:'5px solid #10b981', backgroundColor:'#ecfdf5'}}>
-                <h3 style={{fontSize:'13px', margin:'0 0 8px 0', color:'#065f46'}}>✅ CORTE REGISTRADO</h3>
-                <p style={{margin:0, fontSize:'13px', color:'#047857'}}>
-                  <b>Fecha y Hora:</b> {corteDelDia.timestamp} <br/>
-                  <b>Monto Reportado:</b> ${corteDelDia.reportado.toFixed(2)} <br/>
-                  <b>Diferencia:</b> <span style={{color: corteDelDia.diferencia < 0 ? '#ef4444' : '#10b981', fontWeight:'bold'}}>${corteDelDia.diferencia.toFixed(2)}</span>
+                <h3 style={{fontSize:'12px', margin:'0 0 5px 0', color:'#065f46'}}>✅ ARQUEO REGISTRADO</h3>
+                <p style={{margin:0, fontSize:'12px', color:'#047857'}}>
+                  <b>Hora:</b> {corteDelDia.timestamp.split(', ')[1]} | <b>Físico:</b> ${corteDelDia.reportado.toFixed(2)} | 
+                  <b> Dif:</b> <span style={{color: corteDelDia.diferencia < 0 ? '#ef4444' : '#10b981'}}>${corteDelDia.diferencia.toFixed(2)}</span>
                 </p>
               </div>
             )}
 
             <div style={card}>
-              <h3 style={{fontSize:'14px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO GLOBAL POR PROVEEDOR</h3>
+              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a', borderBottom:'1px solid #f1f5f9', paddingBottom:'5px'}}>💸 GASTOS DEL DÍA</h3>
+              {filtrados.gst.length > 0 ? (
+                <table style={{width:'100%', fontSize:'12px'}}>
+                  <tbody>
+                    {filtrados.gst.map((g, i) => (
+                      <tr key={i} style={{borderBottom:'1px solid #f8fafc'}}>
+                        <td style={{padding:'5px 0'}}>{g.concepto}</td>
+                        <td style={{textAlign:'right', color:'#ef4444'}}><b>-${Number(g.monto).toFixed(2)}</b></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p style={{fontSize:'11px', color:'#94a3b8', textAlign:'center'}}>Sin gastos registrados.</p>}
+            </div>
+
+            <div style={card}>
+              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO POR PROVEEDOR</h3>
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%', fontSize:'12px', textAlign:'left', borderCollapse:'collapse'}}>
                   <thead>
@@ -284,7 +281,7 @@ export default function App() {
 
             <div style={card}>
               <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
-                <input placeholder="Gasto de hoy..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
+                <input placeholder="Nuevo gasto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
                 <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
                 <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
               </form>
