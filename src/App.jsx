@@ -9,26 +9,33 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
-  // --- ESTADOS ---
+  // --- ESTADOS DE SESIÓN ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [mostrandoPad, setMostrandoPad] = useState(false);
   const [passInput, setPassInput] = useState('');
   const [vistaPendiente, setVistaPendiente] = useState(null);
+
+  // --- ESTADOS DE DATOS (Inicializados como arreglos vacíos para evitar pantalla blanca) ---
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   
-  // Estados para Filtros de Gestión
+  // Filtros Gestión
   const [filtroNombre, setFiltroNombre] = useState('');
   const [filtroPaca, setFiltroPaca] = useState('');
   const [filtroProv, setFiltroProv] = useState('');
 
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
-  const [cortes, setCortes] = useState(JSON.parse(localStorage.getItem('cortesPacaPro')) || []);
+  const [cortes, setCortes] = useState([]);
+
+  useEffect(() => {
+    const guardados = localStorage.getItem('cortesPacaPro');
+    if (guardados) setCortes(JSON.parse(guardados));
+  }, []);
   
   const obtenerFechaLocal = () => {
     const d = new Date();
@@ -45,18 +52,21 @@ export default function App() {
   const inputNombreRef = useRef(null);
 
   useEffect(() => { if (usuario) obtenerTodo(); }, [usuario]);
-  useEffect(() => { localStorage.setItem('cortesPacaPro', JSON.stringify(cortes)); }, [cortes]);
+  useEffect(() => { if (cortes.length > 0) localStorage.setItem('cortesPacaPro', JSON.stringify(cortes)); }, [cortes]);
 
   async function obtenerTodo() {
-    const { data: p } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
-    if (p) setInventario(p);
-    const { data: v } = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
-    if (v) setHistorial(v);
-    const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
-    if (g) setGastos(g);
+    try {
+      const { data: p } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
+      if (p) setInventario(p);
+      const { data: v } = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
+      if (v) setHistorial(v);
+      const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
+      if (g) setGastos(g);
+    } catch (err) {
+      console.error("Error cargando datos:", err);
+    }
   }
 
-  // --- ACCESO ---
   const intentarEntrarA = (v) => {
     if ((v === 'admin' || v === 'historial') && !isAdmin) {
       setVistaPendiente(v); setMostrandoPad(true);
@@ -69,21 +79,18 @@ export default function App() {
     } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
-  // --- EDICIÓN INLINE ---
   const actualizarCampoInline = async (id, campo, valor) => {
     const valorNum = Number(valor);
     if (isNaN(valorNum)) return;
     try {
-      const { error } = await supabase.from('productos').update({ [campo]: valorNum }).eq('id', id);
-      if (error) throw error;
-      setInventario(inventario.map(p => p.id === id ? { ...p, [campo]: valorNum } : p));
+      await supabase.from('productos').update({ [campo]: valorNum }).eq('id', id);
+      setInventario(prev => prev.map(p => p.id === id ? { ...p, [campo]: valorNum } : p));
     } catch (e) {
-      alert("Error al actualizar");
       obtenerTodo();
     }
   };
 
-  // --- CÁLCULOS ---
+  // --- MEMOS SEGUROS ---
   const carritoAgrupado = useMemo(() => {
     const grupos = {};
     carrito.forEach(item => {
@@ -95,18 +102,22 @@ export default function App() {
   }, [carrito]);
 
   const inventarioReal = useMemo(() => {
+    if (!inventario) return [];
     return inventario.map(p => {
       const enCar = carrito.filter(item => item.id === p.id).length;
-      return { ...p, stockActual: p.stock - enCar };
+      return { ...p, stockActual: (p.stock || 0) - enCar };
     });
   }, [inventario, carrito]);
 
   const inventarioFiltradoAdmin = useMemo(() => {
+    if (!inventario) return [];
     return inventario.filter(p => {
-      const matchNombre = p.nombre.toLowerCase().includes(filtroNombre.toLowerCase());
-      const matchPaca = p.paca.toString().includes(filtroPaca);
-      const matchProv = (p.proveedor || '').toLowerCase().includes(filtroProv.toLowerCase());
-      return matchNombre && matchPaca && matchProv;
+      const n = (p.nombre || '').toLowerCase();
+      const pc = (p.paca || '').toString();
+      const pv = (p.proveedor || '').toLowerCase();
+      return n.includes(filtroNombre.toLowerCase()) && 
+             pc.includes(filtroPaca) && 
+             pv.includes(filtroProv.toLowerCase());
     });
   }, [inventario, filtroNombre, filtroPaca, filtroProv]);
 
@@ -125,14 +136,14 @@ export default function App() {
     inventario.forEach(p => {
       const prov = p.proveedor || 'Sin Nombre';
       if (!stats[prov]) stats[prov] = { stock: 0, inversion: 0, ventaEsperada: 0 };
-      stats[prov].stock += p.stock;
-      stats[prov].inversion += (p.stock * (p.costo_unitario || 0));
-      stats[prov].ventaEsperada += (p.stock * (p.precio || 0));
+      stats[prov].stock += (p.stock || 0);
+      stats[prov].inversion += ((p.stock || 0) * (p.costo_unitario || 0));
+      stats[prov].ventaEsperada += ((p.stock || 0) * (p.precio || 0));
     });
     return Object.entries(stats);
   }, [inventario]);
 
-  // --- ACCIONES ---
+  // --- FUNCIONES DE BOTÓN ---
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
@@ -147,38 +158,35 @@ export default function App() {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
-      let t = `*🛍️ TICKET PACA PRO*\n📅 ${hoyStr} | 🕒 ${hora}\n👤 Atendió: ${usuario}\n--------------------------\n`;
-      carritoAgrupado.forEach(i => { t += `▪️ ${i.nombre} x${i.cantCar}: $${i.subtotal.toFixed(2)}\n`; });
-      t += `--------------------------\n💰 *TOTAL: $${totalV.toFixed(2)}*\n💳 Pago: ${mTxt}`;
+      let t = `*🛍️ TICKET PACA PRO*\n📅 ${hoyStr}\n👤: ${usuario}\n----------------\n`;
+      carritoAgrupado.forEach(i => { t += `${i.nombre} x${i.cantCar}: $${i.subtotal}\n`; });
+      t += `----------------\n💰 *TOTAL: $${totalV}*`;
       window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank');
       setCarrito([]); obtenerTodo(); setVista('catalogo');
-    } catch (e) { alert("Error"); }
+    } catch (e) { alert("Error al vender"); }
   }
 
   const realizarCorte = () => {
-    const f = window.prompt(`ARQUEO: ¿Dinero físico en caja?`);
+    const f = window.prompt(`Dinero físico en caja?`);
     if (!f) return;
     const fisico = Number(f);
-    const esperado = filtrados.totalV - filtrados.totalG;
-    const dif = fisico - esperado;
     const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    const nuevoCorte = { id: Date.now(), fecha: fechaConsulta, hora: hora, vendedor: usuario, ventas: filtrados.totalV, gastos: filtrados.totalG, fisico: fisico, diferencia: dif };
+    const nuevoCorte = { id: Date.now(), fecha: fechaConsulta, hora: hora, vendedor: usuario, ventas: filtrados.totalV, gastos: filtrados.totalG, fisico: fisico, diferencia: fisico - (filtrados.totalV - filtrados.totalG) };
     setCortes([nuevoCorte, ...cortes]);
-    const texto = `*🏁 CORTE FINAL*\n📅: ${fechaConsulta}\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+    alert("Corte guardado");
   };
 
+  // --- ESTILOS ---
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
-  const inputS = { width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box', fontSize: '13px' };
-  const inputInline = { border: 'none', background: '#f1f5f9', borderRadius: '4px', width: '45px', textAlign: 'center', padding: '4px', fontSize: '11px', fontWeight: 'bold' };
-  const modalWrap = { position: 'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(15,23,42,0.9)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:'20px' };
+  const inputS = { width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box' };
+  const inputInline = { border: 'none', background: '#f1f5f9', borderRadius: '4px', width: '45px', textAlign: 'center', padding: '4px', fontSize: '11px' };
 
   if (!usuario) {
     return (
-      <div style={{ ...modalWrap, background: '#0f172a' }}>
+      <div style={{ position:'fixed', inset:0, background: '#0f172a', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }}>
         <div style={{ ...card, width: '100%', maxWidth: '320px', textAlign: 'center' }}>
           <h2>📦 PACA PRO</h2>
-          <input placeholder="Nombre Vendedor" onChange={e => setTempNombre(e.target.value)} style={{ ...inputS, textAlign:'center', marginBottom:'10px' }} />
+          <input placeholder="Tu Nombre" onChange={e => setTempNombre(e.target.value)} style={{ ...inputS, textAlign:'center', marginBottom:'10px' }} />
           <button onClick={() => { if(tempNombre){ setUsuario(tempNombre); localStorage.setItem('pacaUser', tempNombre); }}} style={{ width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold' }}>ENTRAR</button>
         </div>
       </div>
@@ -188,36 +196,34 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       {mostrandoPad && (
-        <div style={modalWrap}>
-          <div style={{ ...card, width: '280px', textAlign: 'center' }}>
-            <h3>🔐 Acceso Admin</h3>
-            <input type="password" autoFocus style={{ ...inputS, fontSize:'24px', textAlign:'center', letterSpacing:'8px', marginBottom:'15px' }} value={passInput} onChange={e => setPassInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && validarClave()} />
-            <div style={{ display:'flex', gap:'10px' }}>
-                <button onClick={() => setMostrandoPad(false)} style={{ flex:1, padding:'12px', background:'none', border:'1px solid #ddd', borderRadius:'10px' }}>X</button>
-                <button onClick={validarClave} style={{ flex:1, padding:'12px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px' }}>OK</button>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ ...card, width: '260px', textAlign: 'center' }}>
+            <h3>PIN ADMIN</h3>
+            <input type="password" autoFocus style={{ ...inputS, textAlign:'center', fontSize:'20px' }} value={passInput} onChange={e => setPassInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && validarClave()} />
+            <div style={{ display:'flex', gap:'10px', marginTop:'10px' }}>
+                <button onClick={() => setMostrandoPad(false)} style={{ flex:1, padding:'10px' }}>X</button>
+                <button onClick={validarClave} style={{ flex:1, padding:'10px', background:'#10b981', color:'#fff' }}>OK</button>
             </div>
           </div>
         </div>
       )}
 
-      <header style={{ background: '#0f172a', color: '#fff', padding: '12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <h1 style={{ margin: 0, fontSize: '14px' }}>PACA PRO {isAdmin && "⭐"}</h1>
-        <div style={{ fontSize:'11px', background:'#1e293b', padding:'5px 10px', borderRadius:'20px' }}>👤 {usuario}</div>
+      <header style={{ background: '#0f172a', color: '#fff', padding: '12px', display:'flex', justifyContent:'space-between' }}>
+        <span>PACA PRO {isAdmin ? '⭐' : ''}</span>
+        <span>👤 {usuario}</span>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar en catálogo..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
+            <input placeholder="🔍 Buscar..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {inventarioReal.filter(p => p.stockActual > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+              {inventarioReal.filter(p => p.stockActual > 0 && p.nombre?.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={card}>
-                  <div style={{display:'flex', justifyContent:'space-between', fontSize:'9px', color:'#64748b'}}>
-                    <span>Paca {p.paca}</span> <span style={{color: p.stockActual < 3 ? '#ef4444' : '#10b981', fontWeight:'bold'}}>{p.stockActual} pzs</span>
-                  </div>
-                  <h4 style={{margin:'8px 0', fontSize:'13px', height:'32px', overflow:'hidden'}}>{p.nombre}</h4>
-                  <p style={{fontSize:'22px', fontWeight:'900', margin:0}}>${Number(p.precio).toFixed(2)}</p>
-                  <button onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#0f172a', color:'#10b981', border:'none', borderRadius:'8px', fontWeight:'bold'}}>AÑADIR</button>
+                  <div style={{fontSize:'9px', color:'#64748b'}}>Paca {p.paca} | {p.stockActual} pzs</div>
+                  <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
+                  <p style={{fontSize:'18px', fontWeight:'bold'}}>${Number(p.precio).toFixed(2)}</p>
+                  <button onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', padding:'8px', background:'#0f172a', color:'#10b981', border:'none', borderRadius:'8px'}}>AÑADIR</button>
                 </div>
               ))}
             </div>
@@ -227,77 +233,38 @@ export default function App() {
         {vista === 'pos' && (
           <>
             <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <h2 style={{fontSize:'45px', margin:0}}>${carrito.reduce((a,b)=>a+b.precio, 0).toFixed(2)}</h2>
+              <h2 style={{fontSize:'32px', margin:0}}>${carrito.reduce((a,b)=>a+b.precio, 0).toFixed(2)}</h2>
             </div>
             {carritoAgrupado.map((item) => (
-              <div key={item.id} style={{...card, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                <div><b>{item.nombre}</b> <span style={{color:'#10b981'}}>x{item.cantCar}</span></div>
-                <div style={{textAlign:'right'}}><b>${item.subtotal.toFixed(2)}</b><br/>
-                  <button onClick={() => setCarrito(carrito.filter(p => p.id !== item.id))} style={{border:'none', background:'none', color:'#ef4444', fontSize:'11px'}}>Quitar</button>
-                </div>
+              <div key={item.id} style={{...card, display:'flex', justifyContent:'space-between'}}>
+                <span>{item.nombre} x{item.cantCar}</span>
+                <b>${item.subtotal.toFixed(2)}</b>
               </div>
             ))}
-            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>COBRAR ✅</button>}
+            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', borderRadius:'10px', fontWeight:'bold'}}>COBRAR ✅</button>}
           </>
         )}
 
         {vista === 'admin' && isAdmin && (
           <>
             <div style={card}>
-              <h3>⚡ Nuevo Producto</h3>
-              <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
-                <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
-              </div>
-              <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  await supabase.from('productos').insert([{ nombre: nuevoProd.nombre, precio: Number(nuevoProd.precio), costo_unitario: Number(nuevoProd.costo), stock: Number(nuevoProd.cantidad), paca: infoPaca.numero, proveedor: infoPaca.proveedor }]);
-                  setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 }); obtenerTodo();
-                  inputNombreRef.current.focus();
-              }}>
-                <input ref={inputNombreRef} placeholder="Nombre" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...inputS, marginBottom:'10px'}} required />
-                <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                  <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputS} required />
-                  <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
-                  <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
-                </div>
-                <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold'}}>REGISTRAR</button>
-              </form>
-            </div>
-
-            <div style={card}>
-              <h3>📦 Gestión de Inventario</h3>
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px', marginBottom:'10px'}}>
-                <input placeholder="🔍 Nombre..." value={filtroNombre} onChange={e=>setFiltroNombre(e.target.value)} style={inputS} />
-                <input placeholder="📦 # Paca..." value={filtroPaca} onChange={e=>setFiltroPaca(e.target.value)} style={inputS} />
-                <input placeholder="🏢 Proveedor..." value={filtroProv} onChange={e=>setFiltroProv(e.target.value)} style={{...inputS, gridColumn:'span 2'}} />
+              <h3>⚡ Gestión de Inventario</h3>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px', marginBottom:'10px'}}>
+                <input placeholder="Nombre..." value={filtroNombre} onChange={e=>setFiltroNombre(e.target.value)} style={inputS} />
+                <input placeholder="Paca..." value={filtroPaca} onChange={e=>setFiltroPaca(e.target.value)} style={inputS} />
               </div>
               <div style={{overflowX: 'auto'}}>
-                <table style={{width: '100%', fontSize: '10px', textAlign: 'center', borderCollapse: 'collapse'}}>
+                <table style={{width: '100%', fontSize: '10px', textAlign: 'center'}}>
                   <thead>
-                    <tr style={{background:'#f8fafc', color:'#64748b'}}>
-                      <th style={{padding:'8px', textAlign:'left'}}>Producto</th>
-                      <th style={{padding:'8px'}}>Costo</th>
-                      <th style={{padding:'8px'}}>Precio</th>
-                      <th style={{padding:'8px'}}>Stock</th>
-                    </tr>
+                    <tr><th style={{textAlign:'left'}}>Producto</th><th>Costo</th><th>Precio</th><th>Stock</th></tr>
                   </thead>
                   <tbody>
                     {inventarioFiltradoAdmin.map(p => (
-                      <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
-                        <td style={{padding:'8px', textAlign:'left'}}>
-                            <b>{p.nombre}</b><br/>
-                            <span style={{fontSize:'8px', color:'#94a3b8'}}>P:{p.paca} | {p.proveedor}</span>
-                        </td>
-                        <td style={{padding:'8px'}}>
-                          <input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={inputInline}/>
-                        </td>
-                        <td style={{padding:'8px'}}>
-                          <input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={inputInline}/>
-                        </td>
-                        <td style={{padding:'8px'}}>
-                          <input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={inputInline}/>
-                        </td>
+                      <tr key={p.id} style={{borderBottom:'1px solid #eee'}}>
+                        <td style={{textAlign:'left', padding:'5px 0'}}>{p.nombre}<br/><small>{p.proveedor}</small></td>
+                        <td><input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={inputInline}/></td>
+                        <td><input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={inputInline}/></td>
+                        <td><input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={inputInline}/></td>
                       </tr>
                     ))}
                   </tbody>
@@ -308,65 +275,21 @@ export default function App() {
         )}
 
         {vista === 'historial' && isAdmin && (
-          <>
-            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'10px', borderRadius:'8px', width:'100%', textAlign:'center'}} />
-              <div style={{display:'flex', justifyContent:'space-around', marginTop:'15px'}}>
-                <div><small>VENTAS</small><h3>${filtrados.totalV.toFixed(2)}</h3></div>
-                <div><small>UTILIDAD</small><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
-              </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
-            </div>
-
-            <div style={card}>
-              <h3 style={{fontSize:'14px', marginTop:0}}>📅 Historial de Cierres</h3>
-              <div style={{maxHeight:'150px', overflowY:'auto'}}>
-                {cortes.filter(c => c.fecha === fechaConsulta).map(c => (
-                  <div key={c.id} style={{fontSize:'11px', padding:'10px', borderBottom:'1px solid #eee'}}>
-                    <div style={{display:'flex', justifyContent:'space-between'}}>
-                      <b>🕒 {c.hora}</b>
-                      <span>👤 {c.vendedor}</span>
-                    </div>
-                    Ventas: ${c.ventas} | Caja: ${c.fisico} | Dif: <span style={{color: c.diferencia < 0 ? 'red' : 'green'}}>${c.diferencia.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0}}>💸 Gastos</h3>
-              {filtrados.gst.map((g, i) => (
-                <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'12px', padding:'5px 0', borderBottom:'1px solid #f1f5f9'}}>
-                  <span>{g.concepto}</span><b style={{color:'#ef4444'}}>-${Number(g.monto).toFixed(2)}</b>
-                </div>
-              ))}
-            </div>
-            
-            <div style={card}>
-                <h3 style={{fontSize:'13px', marginTop:0}}>📊 Inversión Prov.</h3>
-                <table style={{width:'100%', fontSize:'11px', textAlign:'left'}}>
-                    <thead><tr style={{color:'#64748b'}}><th>Prov.</th><th>Stock</th><th>Inv.</th><th>Est.</th></tr></thead>
-                    <tbody>
-                        {statsProveedores.map(([n, s]) => (
-                            <tr key={n} style={{borderBottom:'1px solid #f1f5f9'}}>
-                                <td style={{padding:'8px 0'}}>{n}</td>
-                                <td>{s.stock}</td>
-                                <td>${s.inversion.toFixed(0)}</td>
-                                <td style={{color:'#10b981'}}>${s.ventaEsperada.toFixed(0)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-          </>
+          <div style={card}>
+            <h3>📈 Reporte de Hoy</h3>
+            <p>Ventas: ${filtrados.totalV}</p>
+            <p>Gastos: ${filtrados.totalG}</p>
+            <p>Utilidad: ${filtrados.utilidad}</p>
+            <button onClick={realizarCorte} style={{width:'100%', padding:'10px', background:'#0f172a', color:'#fff'}}>CERRAR DÍA</button>
+          </div>
         )}
       </main>
 
-      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'12px', borderRadius:'20px' }}>
-        <button onClick={()=>intentarEntrarA('catalogo')} style={{background: vista==='catalogo'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📦</button>
-        <button onClick={()=>intentarEntrarA('pos')} style={{background: vista==='pos'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative'}}>🛒 {carrito.length>0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'#fff', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
-        <button onClick={()=>intentarEntrarA('admin')} style={{background: vista==='admin'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', opacity: isAdmin?1:0.4}}>⚡</button>
-        <button onClick={()=>intentarEntrarA('historial')} style={{background: vista==='historial'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', opacity: isAdmin?1:0.4}}>📈</button>
+      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'10px', borderRadius:'15px' }}>
+        <button onClick={()=>intentarEntrarA('catalogo')} style={{background:'none', border:'none', fontSize:'20px'}}>📦</button>
+        <button onClick={()=>intentarEntrarA('pos')} style={{background:'none', border:'none', fontSize:'20px'}}>🛒</button>
+        <button onClick={()=>intentarEntrarA('admin')} style={{background:'none', border:'none', fontSize:'20px'}}>⚡</button>
+        <button onClick={()=>intentarEntrarA('historial')} style={{background:'none', border:'none', fontSize:'20px'}}>📈</button>
       </nav>
     </div>
   );
