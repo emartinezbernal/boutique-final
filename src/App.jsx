@@ -57,6 +57,13 @@ export default function App() {
       obtenerTodo(); 
       const cortesGuardados = localStorage.getItem('cortesPacaPro');
       if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
+      
+      // CARGAR SCRIPT DE EXCEL DINÁMICAMENTE
+      if (!window.XLSX) {
+        const script = document.createElement("script");
+        script.src = "https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js";
+        document.head.appendChild(script);
+      }
     }
   }, [usuarioActual]);
 
@@ -84,7 +91,29 @@ export default function App() {
     setUsuarioActual('');
   };
 
-  // --- LÓGICA LIVE ACTUALIZADA ---
+  // --- LÓGICA EXPORTAR EXCEL (NUEVA) ---
+  const exportarAExcel = () => {
+    if (!window.XLSX) return alert("Cargando motor de Excel, reintenta en un segundo...");
+    if (inventario.length === 0) return alert("No hay datos para exportar");
+
+    const datosFormateados = inventario.map(p => ({
+      "ID": p.id,
+      "FECHA REGISTRO": new Date(p.created_at).toLocaleDateString(),
+      "PACA": p.paca || "N/A",
+      "PROVEEDOR": p.proveedor || "N/A",
+      "PRODUCTO": p.nombre,
+      "COSTO UNITARIO": p.costo_unitario,
+      "PRECIO VENTA": p.precio,
+      "STOCK": p.stock
+    }));
+
+    const ws = window.XLSX.utils.json_to_sheet(datosFormateados);
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+    window.XLSX.writeFile(wb, `Inventario_PacaPro_${hoyStr}.xlsx`);
+  };
+
+  // --- LÓGICA LIVE ---
   const registrarCapturaLive = async (precio) => {
     if (!clienteLive.trim() || precio <= 0) return;
     
@@ -135,7 +164,7 @@ export default function App() {
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // --- LÓGICA DE NEGOCIO (TABLAS) ---
+  // --- LÓGICA DE NEGOCIO ---
   const statsProveedores = useMemo(() => {
     const stats = {};
     inventario.forEach(p => {
@@ -373,6 +402,14 @@ export default function App() {
                 <button className={btnClass} style={{width:'100%', padding:'12px', background:theme.accent, color:'#fff', borderRadius:'10px', border:'none'}}>GUARDAR ⚡</button>
               </form>
             </div>
+
+            <button 
+              onClick={exportarAExcel}
+              className={btnClass}
+              style={{ width: '100%', marginBottom: '12px', padding: '10px', background: '#1d6f42', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              📊 EXPORTAR INVENTARIO A EXCEL
+            </button>
 
             <div style={cardStyle}>
               <h3 style={{fontSize:'14px', marginTop:0}}>📊 ESTADÍSTICAS POR PROVEEDOR</h3>
