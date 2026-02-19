@@ -198,16 +198,45 @@ export default function App() {
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
     if (!m) return;
     let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
+    
     const tv = carrito.reduce((a, b) => a + b.precio, 0);
     const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
+    const folioVenta = `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+
     try {
-      await supabase.from('ventas').insert([{ total: tv, costo_total: cv, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
+      // 1. Registrar en Supabase
+      await supabase.from('ventas').insert([{ 
+        total: tv, 
+        costo_total: cv, 
+        detalles: `${mTxt} [${folioVenta}]: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') 
+      }]);
+
+      // 2. Descontar Inventario
       for (const item of carritoAgrupado) {
         const pDB = inventario.find(p => p.id === item.id);
         if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
       }
-      setCarrito([]); await obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error"); }
+
+      // 3. Generar Ticket WhatsApp
+      let ticketMsg = `*🛍️ TICKET DE COMPRA - PACA PRO*\n`;
+      ticketMsg += `--------------------------\n`;
+      ticketMsg += `🆔 Folio: *${folioVenta}*\n`;
+      ticketMsg += `📅 Fecha: ${new Date().toLocaleDateString()}\n`;
+      ticketMsg += `💳 Pago: *${mTxt}*\n`;
+      ticketMsg += `--------------------------\n`;
+      carritoAgrupado.forEach(item => {
+        ticketMsg += `• ${item.nombre} (x${item.cantCar}) - $${item.subtotal}\n`;
+      });
+      ticketMsg += `--------------------------\n`;
+      ticketMsg += `*TOTAL: $${tv}*\n\n`;
+      ticketMsg += `¡Gracias por tu preferencia! ✨`;
+
+      window.open(`https://wa.me/?text=${encodeURIComponent(ticketMsg)}`, '_blank');
+
+      setCarrito([]); 
+      await obtenerTodo(); 
+      setVista('historial');
+    } catch (e) { alert("Error al procesar la venta"); }
   }
 
   async function guardarTurbo(e) {
@@ -295,7 +324,6 @@ export default function App() {
                 <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
                   <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputStyle} required />
                   <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputStyle} required />
-                  {/* ADICIÓN DE VARIABLE DE CANTIDAD */}
                   <input type="number" placeholder="Cant." value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputStyle} required />
                 </div>
                 <button className={btnClass} style={{width:'100%', padding:'12px', background:theme.accent, color:'#fff', borderRadius:'10px', border:'none'}}>GUARDAR ⚡</button>
