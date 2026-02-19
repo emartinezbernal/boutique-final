@@ -9,31 +9,21 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
-  // --- ESTADOS DE SESIÓN ---
+  // --- ESTADOS ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [mostrandoPad, setMostrandoPad] = useState(false);
   const [passInput, setPassInput] = useState('');
   const [vistaPendiente, setVistaPendiente] = useState(null);
-  const [vista, setVista] = useState('catalogo');
-
-  // --- ESTADOS DE DATOS ---
-  const [inventario, setInventario] = useState([]);
   const [carrito, setCarrito] = useState([]);
+  const [vista, setVista] = useState('catalogo');
+  const [inventario, setInventario] = useState([]);
+  const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [cortes, setCortes] = useState(JSON.parse(localStorage.getItem('cortesPacaPro')) || []);
   
-  // --- ESTADOS DE BÚSQUEDA (CORREGIDO PARA EVITAR PANTALLA EN BLANCO) ---
-  const [busqueda, setBusqueda] = useState('');
-  const [busquedaAdmin, setBusquedaAdmin] = useState('');
-
-  // --- FORMULARIOS v15.1 ---
-  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
-  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
-  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
-
   const obtenerFechaLocal = () => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
@@ -43,6 +33,12 @@ export default function App() {
 
   const hoyStr = useMemo(() => obtenerFechaLocal(), []);
   const [fechaConsulta, setFechaConsulta] = useState(hoyStr);
+
+  // Formulario Nuevo Producto
+  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
+  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  // Formulario Gastos
+  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
 
   useEffect(() => { if (usuario) obtenerTodo(); }, [usuario]);
   useEffect(() => { localStorage.setItem('cortesPacaPro', JSON.stringify(cortes)); }, [cortes]);
@@ -58,7 +54,7 @@ export default function App() {
     } catch (e) { console.error("Error cargando datos", e); }
   }
 
-  // --- NAVEGACIÓN Y LOGIN ---
+  // --- ACCESO ---
   const intentarEntrarA = (v) => {
     if ((v === 'admin' || v === 'historial') && !isAdmin) {
       setVistaPendiente(v); setMostrandoPad(true);
@@ -68,18 +64,48 @@ export default function App() {
   const validarClave = () => {
     if (passInput === CLAVE_MAESTRA) {
       setIsAdmin(true); setVista(vistaPendiente); setMostrandoPad(false); setPassInput('');
-    } else { alert("❌ PIN incorrecto"); setPassInput(''); }
+    } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
-  // --- ESTADÍSTICAS (LÓGICA v15.1) ---
+  // --- LÓGICA DE NEGOCIO ---
   const filtrados = useMemo(() => {
-    const vnt = (historial || []).filter(v => v.created_at?.split('T')[0] === fechaConsulta);
-    const gst = (gastos || []).filter(g => g.created_at?.split('T')[0] === fechaConsulta);
+    const vnt = historial.filter(v => v.created_at?.split('T')[0] === fechaConsulta);
+    const gst = gastos.filter(g => g.created_at?.split('T')[0] === fechaConsulta);
     const totalV = vnt.reduce((a, b) => a + (Number(b.total) || 0), 0);
     const totalC = vnt.reduce((a, b) => a + (Number(b.costo_total) || 0), 0);
     const totalG = gst.reduce((a, b) => a + (Number(b.monto) || 0), 0);
     return { vnt, gst, totalV, totalG, utilidad: totalV - totalC - totalG };
   }, [historial, gastos, fechaConsulta]);
+
+  const statsProveedores = useMemo(() => {
+    const stats = {};
+    inventario.forEach(p => {
+      const prov = p.proveedor || 'Sin Nombre';
+      if (!stats[prov]) stats[prov] = { stock: 0, inversion: 0, ventaEsperada: 0 };
+      stats[prov].stock += (p.stock || 0);
+      stats[prov].inversion += ((p.stock || 0) * (p.costo_unitario || 0));
+      stats[prov].ventaEsperada += ((p.stock || 0) * (p.precio || 0));
+    });
+    return Object.entries(stats);
+  }, [inventario]);
+
+  async function finalizarVenta() {
+    if (carrito.length === 0) return;
+    const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
+    if (!m) return;
+    let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
+    const totalV = carrito.reduce((a, b) => a + (b.precio || 0), 0);
+    const costoV = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
+    
+    try {
+      await supabase.from('ventas').insert([{ total: totalV, costo_total: costoV, vendedor: usuario, detalles: mTxt }]);
+      for (const item of carrito) {
+        await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
+      }
+      window.open(`https://wa.me/?text=${encodeURIComponent(`🛍️ TICKET PACA PRO\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}\n👤 Atendió: ${usuario}`)}`, '_blank');
+      setCarrito([]); await obtenerTodo(); setVista('catalogo');
+    } catch (e) { alert("Error"); }
+  }
 
   const realizarCorte = () => {
     const f = window.prompt(`ARQUEO: ¿Dinero físico en caja?`);
@@ -94,32 +120,11 @@ export default function App() {
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
   };
 
-  // --- ACCIONES ---
-  async function finalizarVenta() {
-    if (carrito.length === 0) return;
-    const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
-    if (!m) return;
-    let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
-    const totalV = carrito.reduce((a, b) => a + (b.precio || 0), 0);
-    const costoV = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
-    
-    try {
-      await supabase.from('ventas').insert([{ total: totalV, costo_total: costoV, vendedor: usuario, detalles: mTxt }]);
-      for (const item of carrito) {
-        await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
-      }
-      window.open(`https://wa.me/?text=${encodeURIComponent(`🛍️ TICKET PACA PRO\n💰 Total: $${totalV}\n💳 Pago: ${mTxt}`)}`, '_blank');
-      setCarrito([]); await obtenerTodo(); setVista('catalogo');
-    } catch (e) { alert("Error"); }
-  }
-
-  const actualizarCampoInline = async (id, campo, valor) => {
-    const valorNum = Number(valor);
-    if (isNaN(valorNum)) return;
-    try {
-      await supabase.from('productos').update({ [campo]: valorNum }).eq('id', id);
-      setInventario(inventario.map(p => p.id === id ? { ...p, [campo]: valorNum } : p));
-    } catch (e) { obtenerTodo(); }
+  const actualizarStockInline = async (id, nuevoStock) => {
+    const n = Number(nuevoStock);
+    if (isNaN(n)) return;
+    await supabase.from('productos').update({ stock: n }).eq('id', id);
+    setInventario(inventario.map(p => p.id === id ? { ...p, stock: n } : p));
   };
 
   // --- ESTILOS ---
@@ -130,7 +135,7 @@ export default function App() {
     return (
       <div style={{ position:'fixed', inset:0, background: '#0f172a', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }}>
         <div style={{ ...card, width: '100%', maxWidth: '320px', textAlign: 'center' }}>
-          <h2>📦 PACA PRO</h2>
+          <h2>📦 PACA PRO v15.1</h2>
           <input placeholder="Nombre Vendedor" onChange={e => setTempNombre(e.target.value)} style={inputS} />
           <button onClick={() => { if(tempNombre){ setUsuario(tempNombre); localStorage.setItem('pacaUser', tempNombre); }}} style={{ width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold' }}>ENTRAR</button>
         </div>
@@ -158,9 +163,9 @@ export default function App() {
       <main style={{ padding: '15px', maxWidth: '600px', margin: '0 auto' }}>
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={inputS} />
+            <input placeholder="🔍 Buscar producto..." onChange={e=>setBusqueda(e.target.value)} style={inputS} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {(inventario || []).filter(p => (p.stock || 0) > 0 && (p.nombre || '').toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+              {inventario.filter(p => p.stock > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
                 <div key={p.id} style={card}>
                   <div style={{fontSize:'9px', color:'#64748b'}}>Paca: {p.paca} | Stock: {p.stock}</div>
                   <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
@@ -184,7 +189,7 @@ export default function App() {
         {vista === 'admin' && isAdmin && (
           <>
             <div style={card}>
-              <h3>⚡ Nuevo Producto (v15.1)</h3>
+              <h3>⚡ Nuevo Producto</h3>
               <div style={{display:'flex', gap:'5px'}}>
                 <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
                 <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
@@ -205,69 +210,5 @@ export default function App() {
             </div>
 
             <div style={card}>
-              <h3>📦 Gestión de Inventario</h3>
-              <input placeholder="🔍 Filtrar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={inputS} />
-              <div style={{overflowX: 'auto'}}>
-                <table style={{width: '100%', fontSize: '10px', textAlign: 'center'}}>
-                  <thead>
-                    <tr style={{background:'#f8fafc'}}>
-                      <th>Producto</th><th>Paca</th><th>Prov</th><th>Costo</th><th>Precio</th><th>Stock</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(inventario || []).filter(p => (p.nombre || '').toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
-                      <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
-                        <td style={{textAlign:'left'}}>{p.nombre}</td>
-                        <td>{p.paca}</td>
-                        <td>{p.proveedor}</td>
-                        <td><input type="number" defaultValue={p.costo_unitario} onBlur={(e) => actualizarCampoInline(p.id, 'costo_unitario', e.target.value)} style={{width:'40px', border:'none', background:'#f1f5f9'}} /></td>
-                        <td><input type="number" defaultValue={p.precio} onBlur={(e) => actualizarCampoInline(p.id, 'precio', e.target.value)} style={{width:'40px', border:'none', background:'#f1f5f9'}} /></td>
-                        <td><input type="number" defaultValue={p.stock} onBlur={(e) => actualizarCampoInline(p.id, 'stock', e.target.value)} style={{width:'40px', border:'none', background:'#f1f5f9'}} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-
-        {vista === 'historial' && isAdmin && (
-          <>
-            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'10px', borderRadius:'10px', width:'100%', textAlign:'center'}} />
-              <div style={{display:'flex', justifyContent:'space-around', marginTop:'15px'}}>
-                <div><small>VENTAS</small><h3>${filtrados.totalV}</h3></div>
-                <div><small>GASTOS</small><h3>${filtrados.totalG}</h3></div>
-                <div><small>UTILIDAD</small><h3 style={{color:'#10b981'}}>${filtrados.utilidad}</h3></div>
-              </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'12px', background:'#10b981', border:'none', borderRadius:'10px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
-            </div>
-
-            <div style={card}>
-              <h3>💸 Registrar Gasto (v15.1)</h3>
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto) }]);
-                setNuevoGasto({ concepto: '', monto: '' }); obtenerTodo();
-              }}>
-                <div style={{display:'flex', gap:'5px'}}>
-                  <input placeholder="Concepto" value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
-                  <input type="number" placeholder="Monto" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={inputS} required />
-                </div>
-                <button style={{width:'100%', padding:'10px', background:'#ef4444', color:'#fff', border:'none', borderRadius:'10px'}}>REGISTRAR GASTO</button>
-              </form>
-            </div>
-          </>
-        )}
-      </main>
-
-      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'12px', borderRadius:'20px' }}>
-        <button onClick={()=>intentarEntrarA('catalogo')} style={{background: 'none', border:'none', fontSize:'24px'}}>📦</button>
-        <button onClick={()=>intentarEntrarA('pos')} style={{background: 'none', border:'none', fontSize:'24px'}}>🛒</button>
-        <button onClick={()=>intentarEntrarA('admin')} style={{background: 'none', border:'none', fontSize:'24px'}}>⚡</button>
-        <button onClick={()=>intentarEntrarA('historial')} style={{background: 'none', border:'none', fontSize:'24px'}}>📈</button>
-      </nav>
-    </div>
-  );
-}
+              <h3>📦 Inventario Rápido</h3>
+              {inventario.map(p => (
