@@ -9,12 +9,15 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
+  // --- ESTADOS DE SESIÓN Y VISTAS ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [mostrandoPad, setMostrandoPad] = useState(false);
   const [passInput, setPassInput] = useState('');
   const [vistaPendiente, setVistaPendiente] = useState(null);
+
+  // --- ESTADOS DE DATOS ---
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
@@ -61,6 +64,7 @@ export default function App() {
     } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
+  // --- CÁLCULOS ---
   const carritoAgrupado = useMemo(() => {
     const grupos = {};
     carrito.forEach(item => {
@@ -100,6 +104,7 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
+  // --- ACCIONES ---
   async function finalizarVenta() {
     if (carrito.length === 0) return;
     const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
@@ -129,8 +134,19 @@ export default function App() {
     const esperado = filtrados.totalV - filtrados.totalG;
     const dif = fisico - esperado;
     const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    const nuevoCorte = { id: Date.now(), fecha: fechaConsulta, hora: hora, vendedor: usuario, ventas: filtrados.totalV, gastos: filtrados.totalG, fisico: fisico, diferencia: dif };
+    
+    const nuevoCorte = { 
+        id: Date.now(), 
+        fecha: fechaConsulta, 
+        hora: hora, 
+        vendedor: usuario, 
+        ventas: filtrados.totalV, 
+        gastos: filtrados.totalG, 
+        fisico: fisico, 
+        diferencia: dif 
+    };
     setCortes([nuevoCorte, ...cortes]);
+
     const texto = `*🏁 CORTE FINAL*\n📅: ${fechaConsulta}\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
   };
@@ -244,13 +260,17 @@ export default function App() {
 
             <div style={card}>
               <h3 style={{fontSize:'14px', marginTop:0}}>📅 Historial de Cierres</h3>
-              <div style={{maxHeight:'150px', overflowY:'auto'}}>
+              <div style={{maxHeight:'180px', overflowY:'auto'}}>
                 {cortes.filter(c => c.fecha === fechaConsulta).map(c => (
-                  <div key={c.id} style={{fontSize:'11px', padding:'10px', borderBottom:'1px solid #eee'}}>
-                    <b>{c.hora}</b> | Ventas: ${c.ventas} | Caja: ${c.fisico} | Dif: <span style={{color: c.diferencia < 0 ? 'red' : 'green'}}>${c.diferencia}</span>
+                  <div key={c.id} style={{fontSize:'11px', padding:'10px', borderBottom:'1px solid #eee', background:'#f9fafb', borderRadius:'8px', marginBottom:'5px'}}>
+                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'4px'}}>
+                        <b>🕒 {c.hora}</b>
+                        <span style={{background:'#e2e8f0', padding:'2px 6px', borderRadius:'10px'}}>👤 {c.vendedor || 'N/A'}</span>
+                    </div>
+                    Ventas: ${c.ventas} | Caja: ${c.fisico} | Dif: <span style={{color: c.diferencia < 0 ? '#ef4444' : '#10b981', fontWeight:'bold'}}>${c.diferencia.toFixed(2)}</span>
                   </div>
                 ))}
-                {cortes.filter(c => c.fecha === fechaConsulta).length === 0 && <p style={{fontSize:'11px', color:'#999'}}>Sin cierres hoy.</p>}
+                {cortes.filter(c => c.fecha === fechaConsulta).length === 0 && <p style={{fontSize:'11px', color:'#94a3b8', textAlign:'center'}}>Sin arqueos registrados hoy.</p>}
               </div>
             </div>
 
@@ -280,7 +300,7 @@ export default function App() {
                         {statsProveedores.map(([n, s]) => (
                             <tr key={n} style={{borderBottom:'1px solid #f1f5f9'}}>
                                 <td style={{padding:'8px 0'}}>{n}</td>
-                                <td>{s.stock}</td>
+                                <td>{s.stock} pzs</td>
                                 <td>${s.inversion.toFixed(0)}</td>
                                 <td style={{color:'#10b981'}}>${s.ventaEsperada.toFixed(0)}</td>
                             </tr>
