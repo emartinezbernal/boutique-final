@@ -52,6 +52,7 @@ export default function App() {
     });
   }, [inventario, carrito]);
 
+  // FILTRADO DINÁMICO (Crucial para el Reporte)
   const filtrados = useMemo(() => {
     const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
     const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
@@ -97,26 +98,32 @@ export default function App() {
     setCortes(nuevosCortes);
     localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
 
-    // GENERACIÓN DEL REPORTE FULL PARA WHATSAPP
+    // REPORTE CONSTRUIDO CON LOS DATOS FILTRADOS ACTUALES
     let msg = `*🏁 REPORTE DE CIERRE - PACA PRO*\n`;
     msg += `📅 Fecha: ${fechaConsulta}\n`;
-    msg += `⏰ Corte: ${timestamp.split(', ')[1]}\n`;
+    msg += `⏰ Hora Corte: ${timestamp.split(', ')[1]}\n`;
     msg += `--------------------------\n`;
     msg += `💰 Venta Bruta: *$${filtrados.totalV.toFixed(2)}*\n`;
     msg += `📉 Gastos Totales: *$${filtrados.totalG.toFixed(2)}*\n`;
     msg += `📈 Utilidad Neta: *$${filtrados.utilidad.toFixed(2)}*\n`;
     msg += `--------------------------\n`;
     msg += `💸 *DETALLE DE GASTOS:*\n`;
-    if (filtrados.gst.length > 0) {
-      filtrados.gst.forEach(g => { msg += `• ${g.concepto}: $${Number(g.monto).toFixed(2)}\n`; });
-    } else { msg += `• Sin gastos registrados\n`; }
+    
+    if (filtrados.gst && filtrados.gst.length > 0) {
+      filtrados.gst.forEach(g => {
+        msg += `• ${g.concepto}: $${Number(g.monto).toFixed(2)}\n`;
+      });
+    } else {
+      msg += `• Sin gastos registrados este día.\n`;
+    }
+    
     msg += `--------------------------\n`;
-    msg += `💵 Efectivo en Caja: *$${fisico.toFixed(2)}*\n`;
+    msg += `💵 Efectivo Arqueo: *$${fisico.toFixed(2)}*\n`;
     msg += `⚖️ Diferencia: *${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}*\n`;
-    msg += `📦 Ventas: ${filtrados.ventasCount}\n`;
+    msg += `📦 Ventas Totales: ${filtrados.ventasCount}\n`;
     msg += `--------------------------\n`;
 
-    if (window.confirm("Corte guardado. ¿Enviar reporte DETALLADO a WhatsApp?")) {
+    if (window.confirm("Corte guardado. ¿Enviar el reporte COMPLETO con gastos a WhatsApp?")) {
       enviarWhatsapp(msg);
     }
   };
@@ -150,7 +157,7 @@ export default function App() {
     e.preventDefault();
     await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto) }]);
     setNuevoGasto({ concepto: '', monto: '' });
-    obtenerTodo();
+    await obtenerTodo(); // Recarga inmediata de la base de datos
   }
 
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
@@ -159,7 +166,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v14.0 AUDITORÍA</span></h1>
+        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v14.1 FIX</span></h1>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
@@ -227,18 +234,8 @@ export default function App() {
               <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
             </div>
 
-            {corteDelDia && (
-              <div style={{...card, borderLeft:'5px solid #10b981', backgroundColor:'#ecfdf5'}}>
-                <h3 style={{fontSize:'12px', margin:'0 0 5px 0', color:'#065f46'}}>✅ ARQUEO REGISTRADO</h3>
-                <p style={{margin:0, fontSize:'12px', color:'#047857'}}>
-                  <b>Hora:</b> {corteDelDia.timestamp.split(', ')[1]} | <b>Físico:</b> ${corteDelDia.reportado.toFixed(2)} | 
-                  <b> Dif:</b> <span style={{color: corteDelDia.diferencia < 0 ? '#ef4444' : '#10b981'}}>${corteDelDia.diferencia.toFixed(2)}</span>
-                </p>
-              </div>
-            )}
-
             <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a', borderBottom:'1px solid #f1f5f9', paddingBottom:'5px'}}>💸 GASTOS DEL DÍA</h3>
+              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a', borderBottom:'1px solid #f1f5f9', paddingBottom:'5px'}}>💸 DETALLE DE GASTOS</h3>
               {filtrados.gst.length > 0 ? (
                 <table style={{width:'100%', fontSize:'12px'}}>
                   <tbody>
@@ -248,9 +245,21 @@ export default function App() {
                         <td style={{textAlign:'right', color:'#ef4444'}}><b>-${Number(g.monto).toFixed(2)}</b></td>
                       </tr>
                     ))}
+                    <tr style={{borderTop:'2px solid #f1f5f9'}}>
+                        <td style={{padding:'5px 0'}}><b>TOTAL</b></td>
+                        <td style={{textAlign:'right', color:'#ef4444'}}><b>-${filtrados.totalG.toFixed(2)}</b></td>
+                    </tr>
                   </tbody>
                 </table>
               ) : <p style={{fontSize:'11px', color:'#94a3b8', textAlign:'center'}}>Sin gastos registrados.</p>}
+            </div>
+
+            <div style={card}>
+              <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
+                <input placeholder="Nuevo gasto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
+                <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
+                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
+              </form>
             </div>
 
             <div style={card}>
@@ -277,14 +286,6 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div style={card}>
-              <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px'}}>
-                <input placeholder="Nuevo gasto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
-                <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
-                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
-              </form>
             </div>
           </>
         )}
