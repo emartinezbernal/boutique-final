@@ -121,7 +121,6 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  // --- REPORTE WHATSAPP REHECHO ---
   const realizarCorte = () => {
     const f = window.prompt(`ARQUEO: ¿Cuánto dinero hay físicamente en caja?`);
     if (!f) return;
@@ -141,9 +140,8 @@ export default function App() {
                   `--------------------------\n` +
                   `💰 Ventas: $${filtrados.totalV.toFixed(2)}\n` +
                   `📉 Gastos: $${filtrados.totalG.toFixed(2)}\n` +
-                  `💵 Efectivo en Caja: $${fisico.toFixed(2)}\n` +
-                  `⚖️ Diferencia: ${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}\n` +
-                  `--------------------------`;
+                  `💵 Efectivo Caja: $${fisico.toFixed(2)}\n` +
+                  `⚖️ Diferencia: ${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}`;
 
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
   };
@@ -259,4 +257,29 @@ export default function App() {
                 <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
                 <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
               </div>
-              <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px',
+              <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold'}}>GUARDAR</button>
+            </form>
+          </div>
+        )}
+
+        {vista === 'historial' && isAdmin && (
+          <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
+            <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'10px', borderRadius:'8px', width:'100%', textAlign:'center'}} />
+            <div style={{display:'flex', justifyContent:'space-around', marginTop:'15px'}}>
+              <div><small>VENTAS</small><h3>${filtrados.totalV.toFixed(2)}</h3></div>
+              <div><small>UTILIDAD</small><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
+            </div>
+            <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
+          </div>
+        )}
+      </main>
+
+      <nav style={{ position:'fixed', bottom:'20px', left:'20px', right:'20px', background:'#0f172a', display:'flex', justifyContent:'space-around', padding:'12px', borderRadius:'20px' }}>
+        <button onClick={()=>intentarEntrarA('catalogo')} style={{background: vista==='catalogo'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📦</button>
+        <button onClick={()=>intentarEntrarA('pos')} style={{background: vista==='pos'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative'}}>🛒 {carrito.length>0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'#fff', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
+        <button onClick={()=>intentarEntrarA('admin')} style={{background: vista==='admin'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', opacity: isAdmin?1:0.4}}>⚡</button>
+        <button onClick={()=>intentarEntrarA('historial')} style={{background: vista==='historial'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', opacity: isAdmin?1:0.4}}>📈</button>
+      </nav>
+    </div>
+  );
+}
