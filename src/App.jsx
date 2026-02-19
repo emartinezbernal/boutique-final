@@ -1,288 +1,296 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
+// Configuración de Supabase
 const supabase = createClient(
   'https://jznfomuaxipfigxgokap.supabase.co', 
   'sb_publishable_WjqrlE0gXGWUUYSkefmZBQ_NIzjJHNn'
 );
 
 export default function App() {
+  // --- ESTADOS ---
+  const [usuario, setUsuario] = useState(localStorage.getItem('userPacaPro') || '');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [passMaestra] = useState('1234'); // Clave por defecto
+  const [tempUser, setTempUser] = useState('');
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const [busquedaAdmin, setBusquedaAdmin] = useState('');
   const [historial, setHistorial] = useState([]);
-  const [gastos, setGastos] = useState([]);
-  const [cortes, setCortes] = useState([]);
   
+  // Manejo de Fechas
   const obtenerFechaLocal = () => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
     const local = new Date(d.getTime() - (offset * 60 * 1000));
     return local.toISOString().split('T')[0];
   };
-
   const hoyStr = useMemo(() => obtenerFechaLocal(), []);
   const [fechaConsulta, setFechaConsulta] = useState(hoyStr);
-  
+
+  // Formulario nuevo producto
   const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
   const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
-  const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '' });
   const inputNombreRef = useRef(null);
 
+  // --- CARGA DE DATOS ---
   useEffect(() => { 
-    obtenerTodo(); 
-    const cortesGuardados = localStorage.getItem('cortesPacaPro');
-    if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
-  }, []);
+    if (usuario) obtenerTodo(); 
+  }, [usuario]);
 
   async function obtenerTodo() {
     const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
     if (p) setInventario(p);
     const { data: v } = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
     if (v) setHistorial(v);
-    const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
-    if (g) setGastos(g);
   }
 
-  const carritoAgrupado = useMemo(() => {
-    const grupos = {};
-    carrito.forEach(item => {
-      if (!grupos[item.id]) grupos[item.id] = { ...item, cantCar: 0, subtotal: 0 };
-      grupos[item.id].cantCar += 1;
-      grupos[item.id].subtotal += item.precio;
-    });
-    return Object.values(grupos);
-  }, [carrito]);
-
-  const inventarioReal = useMemo(() => {
-    return inventario.map(p => {
-      const enCar = carrito.filter(item => item.id === p.id).length;
-      return { ...p, stockActual: p.stock - enCar };
-    });
-  }, [inventario, carrito]);
-
-  const filtrados = useMemo(() => {
-    const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
-    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
-    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fFiltro);
-    const totalV = vnt.reduce((a, b) => a + (b.total || 0), 0);
-    const totalC = vnt.reduce((a, b) => a + (b.costo_total || 0), 0);
-    const totalG = gst.reduce((a, b) => a + Number(b.monto || 0), 0);
-    return { vnt, gst, totalV, totalG, utilidad: totalV - totalC - totalG, ventasCount: vnt.length };
-  }, [historial, gastos, fechaConsulta]);
-
-  const statsProveedores = useMemo(() => {
-    const stats = {};
-    inventario.forEach(p => {
-      const prov = p.proveedor || 'Sin Nombre';
-      if (!stats[prov]) stats[prov] = { stock: 0, inversion: 0, ventaEsperada: 0 };
-      stats[prov].stock += p.stock;
-      stats[prov].inversion += (p.stock * (p.costo_unitario || 0));
-      stats[prov].ventaEsperada += (p.stock * (p.precio || 0));
-    });
-    return Object.entries(stats);
-  }, [inventario]);
-
-  const corteDelDia = useMemo(() => {
-    const cortesFiltrados = cortes.filter(c => c.fechaFiltro === fechaConsulta);
-    return cortesFiltrados.length > 0 ? cortesFiltrados[cortesFiltrados.length - 1] : null;
-  }, [cortes, fechaConsulta]);
-
-  const realizarCorte = () => {
-    const f = window.prompt(`ARQUEO: ¿Cuánto dinero hay físicamente en caja?`);
-    if (f === null) return;
-    const fisico = Number(f);
-    const esperado = filtrados.totalV - filtrados.totalG;
-    const dif = fisico - esperado;
-    const timestamp = new Date().toLocaleString();
-    
-    const nuevoCorte = { id: Date.now(), fechaFiltro: fechaConsulta, timestamp, reportado: fisico, diferencia: dif };
-    const nuevosCortes = [...cortes, nuevoCorte];
-    setCortes(nuevosCortes);
-    localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
-
-    let msg = `*🏁 REPORTE CIERRE - PACA PRO*\n📅 Fecha: ${fechaConsulta}\n⏰ Hora: ${timestamp.split(', ')[1]}\n--------------------------\n`;
-    msg += `💰 Venta Bruta: *$${filtrados.totalV.toFixed(2)}*\n📉 Gastos Totales: *$${filtrados.totalG.toFixed(2)}*\n📈 Utilidad Neta: *$${filtrados.utilidad.toFixed(2)}*\n--------------------------\n`;
-    msg += `💸 *DETALLE GASTOS:*\n`;
-    if (filtrados.gst.length > 0) filtrados.gst.forEach(g => { msg += `• ${g.concepto}: $${Number(g.monto).toFixed(2)}\n`; });
-    else msg += `• Sin gastos registrados\n`;
-    msg += `--------------------------\n💵 Caja Arqueo: *$${fisico.toFixed(2)}*\n⚖️ Diferencia: *${dif >= 0 ? '+' : ''}$${dif.toFixed(2)}*`;
-
-    window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+  // --- LÓGICA DE NAVEGACIÓN Y ACCESO ---
+  const verificarAdmin = (nuevaVista) => {
+    if (['admin', 'historial'].includes(nuevaVista) && !isAdmin) {
+      const pass = window.prompt("🔐 Ingrese Clave Maestra para acceder a funciones de administración:");
+      if (pass === passMaestra) { 
+        setIsAdmin(true); 
+        setVista(nuevaVista); 
+      } else { 
+        alert("❌ Acceso denegado: Clave incorrecta"); 
+      }
+    } else { 
+      setVista(nuevaVista); 
+    }
   };
 
-  async function finalizarVenta() {
-    if (carrito.length === 0) return;
-    const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
-    if (!m) return;
-    let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
-    const tv = carrito.reduce((a, b) => a + b.precio, 0);
-    const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
-    try {
-      await supabase.from('ventas').insert([{ total: tv, costo_total: cv, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
-      for (const item of carritoAgrupado) {
-        const pDB = inventario.find(p => p.id === item.id);
-        if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
+  const logout = () => { 
+    setUsuario(''); 
+    setIsAdmin(false); 
+    localStorage.removeItem('userPacaPro'); 
+  };
+
+  // --- ACCIONES DE GESTIÓN (ADMIN) ---
+  async function actualizarCampo(id, campo, valor) {
+    const { error } = await supabase
+      .from('productos')
+      .update({ [campo]: campo === 'nombre' ? valor : Number(valor) })
+      .eq('id', id);
+    
+    if (error) alert("Error al actualizar");
+    else obtenerTodo();
+  }
+
+  async function eliminarProducto(id, nombre) {
+    if (window.confirm(`¿Seguro que deseas eliminar "${nombre}"?`)) {
+      const { error } = await supabase.from('productos').delete().eq('id', id);
+      if (error) alert("Error al eliminar");
+      else obtenerTodo();
+    }
+  }
+
+  async function registrarVenta() {
+    const ventaTotal = carrito.reduce((a, b) => a + b.precio, 0);
+    const costoTotal = carrito.reduce((a, b) => a + b.costo_unitario, 0);
+
+    const { error } = await supabase.from('ventas').insert([{
+      vendedor: usuario,
+      productos: carrito.map(p => p.nombre).join(', '),
+      total: ventaTotal,
+      costo_total: costoTotal
+    }]);
+
+    if (!error) {
+      for (const item of carrito) {
+        await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id);
       }
-      setCarrito([]); await obtenerTodo(); setVista('historial');
-    } catch (e) { alert("Error al vender"); }
+      setCarrito([]);
+      obtenerTodo();
+      setVista('catalogo');
+      alert("✅ Venta registrada con éxito");
+    }
   }
 
-  async function guardarTurbo(e) {
+  async function guardarProductoNuevo(e) {
     e.preventDefault();
-    await supabase.from('productos').insert([{ nombre: nuevoProd.nombre, precio: Number(nuevoProd.precio), costo_unitario: Number(nuevoProd.costo), stock: Number(nuevoProd.cantidad), paca: infoPaca.numero, proveedor: infoPaca.proveedor }]);
-    setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 });
-    obtenerTodo();
-    setTimeout(() => inputNombreRef.current?.focus(), 50);
+    const { error } = await supabase.from('productos').insert([{ 
+      nombre: nuevoProd.nombre, 
+      precio: Number(nuevoProd.precio), 
+      costo_unitario: Number(nuevoProd.costo), 
+      stock: Number(nuevoProd.cantidad), 
+      paca: infoPaca.numero, 
+      proveedor: infoPaca.proveedor, 
+      creado_por: usuario 
+    }]);
+
+    if (!error) {
+      setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 });
+      obtenerTodo();
+      inputNombreRef.current?.focus();
+    }
   }
 
-  async function guardarGasto(e) {
-    e.preventDefault();
-    await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto) }]);
-    setNuevoGasto({ concepto: '', monto: '' });
-    obtenerTodo();
-  }
+  // --- CÁLCULOS DE REPORTE ---
+  const reporte = useMemo(() => {
+    const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
+    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
+    const vTotal = vnt.reduce((a, b) => a + b.total, 0);
+    const cTotal = vnt.reduce((a, b) => a + b.costo_total, 0);
+    return { vnt, vTotal, ganancia: vTotal - cTotal };
+  }, [historial, fechaConsulta]);
 
-  const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
-  const inputS = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box' };
+  // --- ESTILOS ---
+  const estilos = {
+    card: { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' },
+    input: { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', boxSizing: 'border-box', fontSize: '14px' },
+    btnPrimary: { width: '100%', padding: '12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' },
+    btnNav: { background: 'none', border: 'none', fontSize: '22px', padding: '10px', cursor: 'pointer' }
+  };
+
+  // --- VISTA DE LOGIN ---
+  if (!usuario) {
+    return (
+      <div style={{ background: '#0f172a', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', padding: '30px', borderRadius: '25px', width: '100%', maxWidth: '350px', textAlign: 'center' }}>
+          <h1 style={{ color: '#0f172a', margin: 0, letterSpacing: '-1px' }}>PACA PRO</h1>
+          <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '25px' }}>v15.0 FINAL</p>
+          <input placeholder="Nombre del vendedor" value={tempUser} onChange={e => setTempUser(e.target.value)} style={{ ...estilos.input, textAlign: 'center', marginBottom: '15px' }} />
+          <button onClick={() => { if(tempUser) { setUsuario(tempUser); localStorage.setItem('userPacaPro', tempUser); }}} style={estilos.btnPrimary}>INGRESAR</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ fontFamily: 'system-ui', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
-      <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h1 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color:'#10b981'}}>v14.6 FIX</span></h1>
+    <div style={{ backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
+      <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
+        <h2 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color: isAdmin ? '#10b981' : '#f59e0b'}}>{isAdmin ? '🛡️ MODO ADMIN' : '🛒 VENTAS'}</span></h2>
+        <div style={{fontSize:'11px', opacity:0.8}}>Vendedor: {usuario} | <span onClick={logout} style={{textDecoration:'underline'}}>Cerrar Sesión</span></div>
       </header>
 
-      <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
+      <main style={{ padding: '15px', maxWidth: '600px', margin: '0 auto' }}>
+        
+        {/* VISTA CATÁLOGO */}
         {vista === 'catalogo' && (
           <>
-            <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputS, marginBottom:'15px'}} />
+            <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...estilos.input, marginBottom:'15px'}} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {inventarioReal.filter(p => p.stockActual > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
-                <div key={p.id} style={card}>
-                  <div style={{display:'flex', justifyContent:'space-between', fontSize:'9px', color:'#64748b'}}>
-                    <span>Paca {p.paca}</span> <span style={{color: p.stockActual < 3 ? '#ef4444' : '#10b981', fontWeight:'bold'}}>{p.stockActual} pzs</span>
-                  </div>
-                  <h4 style={{margin:'8px 0', fontSize:'13px', height:'32px', overflow:'hidden'}}>{p.nombre}</h4>
-                  <p style={{fontSize:'22px', fontWeight:'900', margin:0}}>${Number(p.precio).toFixed(2)}</p>
-                  <button onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#0f172a', color:'#10b981', border:'none', borderRadius:'8px', fontWeight:'bold'}}>AÑADIR</button>
+              {inventario.filter(p => p.stock > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+                <div key={p.id} style={estilos.card}>
+                  <div style={{display:'flex', justifyContent:'space-between', fontSize:'10px', color:'#94a3b8'}}><span>Paca: {p.paca}</span> <span>Stock: {p.stock}</span></div>
+                  <h4 style={{margin:'8px 0', fontSize:'14px'}}>{p.nombre}</h4>
+                  <div style={{fontSize:'22px', fontWeight:'900', color:'#0f172a'}}>${p.precio}</div>
+                  <button onClick={()=>setCarrito([...carrito, p])} style={{...estilos.btnPrimary, background:'#0f172a', marginTop:'10px'}}>+ VENDER</button>
                 </div>
               ))}
             </div>
           </>
         )}
 
+        {/* VISTA POS (CARRITO) */}
         {vista === 'pos' && (
-          <>
-            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <h2 style={{fontSize:'45px', margin:0}}>${carrito.reduce((a,b)=>a+b.precio, 0).toFixed(2)}</h2>
+          <div style={{textAlign:'center'}}>
+            <h3 style={{color:'#64748b'}}>RESUMEN DE VENTA</h3>
+            <div style={{...estilos.card, background:'#1e293b', color:'#10b981'}}>
+              <p style={{margin:0, fontSize:'14px', color:'#fff'}}>TOTAL A COBRAR</p>
+              <h2 style={{fontSize:'45px', margin:0}}>${carrito.reduce((a,b)=>a+b.precio, 0)}</h2>
             </div>
-            {carritoAgrupado.map((item) => (
-              <div key={item.id} style={{...card, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                <div><b>{item.nombre}</b> <span style={{color:'#10b981'}}>x{item.cantCar}</span></div>
-                <div style={{textAlign:'right'}}><b>${item.subtotal.toFixed(2)}</b><br/>
-                  <button onClick={() => setCarrito(carrito.filter(p => p.id !== item.id))} style={{border:'none', background:'none', color:'#ef4444', fontSize:'11px'}}>Quitar</button>
+            {carrito.map((item, i) => (
+              <div key={i} style={{...estilos.card, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div style={{textAlign:'left'}}>
+                  <div style={{fontWeight:'bold'}}>{item.nombre}</div>
+                  <div style={{fontSize:'12px', color:'#64748b'}}>${item.precio}</div>
                 </div>
+                <button onClick={()=>setCarrito(carrito.filter((_, idx) => idx !== i))} style={{background:'#fee2e2', color:'#ef4444', border:'none', padding:'8px 12px', borderRadius:'8px'}}>Quitar</button>
               </div>
             ))}
-            {carrito.length > 0 && <button onClick={finalizarVenta} style={{width:'100%', padding:'20px', background:'#10b981', color:'#fff', border:'none', borderRadius:'15px', fontWeight:'bold', fontSize:'18px'}}>COBRAR ✅</button>}
-          </>
-        )}
-
-        {vista === 'admin' && (
-          <div style={card}>
-            <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
-              <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
-            </div>
-            <form onSubmit={guardarTurbo}>
-              <input ref={inputNombreRef} placeholder="Nombre" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...inputS, marginBottom:'10px'}} required />
-              <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                <input type="number" step="0.01" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={inputS} required />
-                <input type="number" step="0.01" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={inputS} required />
-                <input type="number" placeholder="Stock" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={inputS} required />
-              </div>
-              <button style={{width:'100%', padding:'15px', background:'#10b981', color:'#fff', border:'none', borderRadius:'10px', fontWeight:'bold'}}>REGISTRAR ⚡</button>
-            </form>
+            {carrito.length > 0 ? (
+              <button onClick={registrarVenta} style={{...estilos.btnPrimary, fontSize:'18px', padding:'20px'}}>FINALIZAR VENTA</button>
+            ) : <p>El carrito está vacío</p>}
           </div>
         )}
 
-        {vista === 'historial' && (
+        {/* VISTA ADMIN (ALTAS Y GESTIÓN) */}
+        {vista === 'admin' && isAdmin && (
           <>
-            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <label style={{fontSize:'10px', color:'#94a3b8', display:'block', marginBottom:'5px'}}>HISTORIAL (MÁX. HOY):</label>
-              <input type="date" max={hoyStr} value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'1px solid #334155', padding:'8px', borderRadius:'8px', marginBottom:'10px', textAlign:'center', width:'100%'}} />
-              <div style={{display:'flex', justifyContent:'space-around', marginTop:'5px'}}>
-                <div><p style={{margin:0, color:'#94a3b8', fontSize:'10px'}}>VENTA</p><h3>${filtrados.totalV.toFixed(2)}</h3></div>
-                <div><p style={{margin:0, color:'#10b981', fontSize:'10px'}}>UTILIDAD</p><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
-              </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'15px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
-            </div>
-
-            {corteDelDia && (
-              <div style={{...card, borderLeft:'5px solid #10b981', backgroundColor:'#ecfdf5'}}>
-                <h3 style={{fontSize:'12px', margin:'0 0 5px 0', color:'#065f46'}}>✅ ARQUEO REGISTRADO</h3>
-                <p style={{margin:0, fontSize:'11px', color:'#047857'}}><b>Hora:</b> {corteDelDia.timestamp.split(', ')[1]} | <b>Físico:</b> ${corteDelDia.reportado.toFixed(2)} | <b>Dif:</b> ${corteDelDia.diferencia.toFixed(2)}</p>
-              </div>
-            )}
-
-            <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a', borderBottom:'1px solid #f1f5f9', paddingBottom:'5px'}}>💸 GASTOS</h3>
-              <table style={{width:'100%', fontSize:'12px'}}>
-                <tbody>
-                  {filtrados.gst.map((g, i) => (
-                    <tr key={i} style={{borderBottom:'1px solid #f8fafc'}}>
-                      <td style={{padding:'5px 0'}}>{g.concepto}</td>
-                      <td style={{textAlign:'right', color:'#ef4444'}}><b>-${Number(g.monto).toFixed(2)}</b></td>
-                    </tr>
-                  ))}
-                  <tr style={{borderTop:'2px solid #f1f5f9'}}>
-                      <td style={{padding:'5px 0'}}><b>TOTAL</b></td>
-                      <td style={{textAlign:'right', color:'#ef4444'}}><b>-${filtrados.totalG.toFixed(2)}</b></td>
-                  </tr>
-                </tbody>
-              </table>
-              <form onSubmit={guardarGasto} style={{display:'flex', gap:'5px', marginTop:'10px'}}>
-                <input placeholder="Concepto..." value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
-                <input type="number" step="0.01" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
-                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
+            <div style={estilos.card}>
+              <h3 style={{marginTop:0}}>⚡ REGISTRO DE MERCANCÍA</h3>
+              <form onSubmit={guardarProductoNuevo}>
+                <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+                  <input placeholder="N° Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={estilos.input}/>
+                  <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={estilos.input}/>
+                </div>
+                <input ref={inputNombreRef} placeholder="Nombre de la prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...estilos.input, marginBottom:'10px'}} required />
+                <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+                  <input type="number" placeholder="Costo $" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={estilos.input} required />
+                  <input type="number" placeholder="Venta $" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={estilos.input} required />
+                  <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={estilos.input} required />
+                </div>
+                <button type="submit" style={estilos.btnPrimary}>AÑADIR AL INVENTARIO</button>
               </form>
             </div>
 
-            <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0, color:'#0f172a'}}>📊 INVENTARIO POR PROVEEDOR</h3>
-              <div style={{overflowX:'auto'}}>
-                <table style={{width:'100%', fontSize:'12px', textAlign:'left', borderCollapse:'collapse'}}>
-                  <thead>
-                    <tr style={{borderBottom:'2px solid #f1f5f9', color:'#64748b'}}>
-                      <th style={{padding:'8px 0'}}>Prov.</th>
-                      <th>Stock</th>
-                      <th>Inversión</th>
-                      <th>Venta Est.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {statsProveedores.map(([nombre, s]) => (
-                      <tr key={nombre} style={{borderBottom:'1px solid #f1f5f9'}}>
-                        <td style={{padding:'10px 0'}}><b>{nombre}</b></td>
-                        <td>{s.stock} pzs</td>
-                        <td>${s.inversion.toFixed(2)}</td>
-                        <td style={{color:'#10b981'}}><b>${s.ventaEsperada.toFixed(2)}</b></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div style={{...estilos.card, borderTop:'5px solid #3b82f6'}}>
+              <h3 style={{marginTop:0}}>✏️ EDITAR PRECIOS / STOCK</h3>
+              <input placeholder="Buscar producto para modificar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={{...estilos.input, marginBottom:'15px', background:'#f1f5f9'}} />
+              
+              {inventario.filter(p => p.nombre.toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
+                <div key={p.id} style={{borderBottom:'1px solid #f1f5f9', padding:'10px 0'}}>
+                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                      <span style={{fontWeight:'bold', fontSize:'13px'}}>{p.nombre}</span>
+                      <button onClick={()=>eliminarProducto(p.id, p.nombre)} style={{background:'none', border:'none', cursor:'pointer'}}>🗑️</button>
+                   </div>
+                   <div style={{display:'flex', gap:'10px', marginTop:'5px'}}>
+                      <div style={{flex:1}}>
+                        <label style={{fontSize:'10px', color:'#64748b'}}>PRECIO VENTA</label>
+                        <input type="number" defaultValue={p.precio} onBlur={(e)=>actualizarCampo(p.id, 'precio', e.target.value)} style={{...estilos.input, padding:'5px'}} />
+                      </div>
+                      <div style={{flex:1}}>
+                        <label style={{fontSize:'10px', color:'#64748b'}}>STOCK DISPONIBLE</label>
+                        <input type="number" defaultValue={p.stock} onBlur={(e)=>actualizarCampo(p.id, 'stock', e.target.value)} style={{...estilos.input, padding:'5px'}} />
+                      </div>
+                   </div>
+                </div>
+              ))}
             </div>
           </>
         )}
+
+        {/* VISTA REPORTES */}
+        {vista === 'historial' && isAdmin && (
+          <div style={estilos.card}>
+             <h3 style={{marginTop:0}}>📈 RENDIMIENTO DIARIO</h3>
+             <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{...estilos.input, marginBottom:'20px'}} />
+             
+             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom:'20px'}}>
+                <div style={{padding:'15px', background:'#f8fafc', borderRadius:'10px', textAlign:'center'}}>
+                   <small>INGRESOS</small>
+                   <div style={{fontSize:'20px', fontWeight:'bold'}}>${reporte.vTotal}</div>
+                </div>
+                <div style={{padding:'15px', background:'#ecfdf5', borderRadius:'10px', textAlign:'center'}}>
+                   <small style={{color:'#10b981'}}>GANANCIA</small>
+                   <div style={{fontSize:'20px', fontWeight:'bold', color:'#059669'}}>${reporte.ganancia}</div>
+                </div>
+             </div>
+
+             <div style={{textAlign:'left'}}>
+                <small style={{fontWeight:'bold'}}>DETALLE DE VENTAS:</small>
+                {reporte.vnt.map((v, i) => (
+                  <div key={i} style={{fontSize:'12px', padding:'8px 0', borderBottom:'1px solid #eee'}}>
+                    <b>{new Date(v.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</b> - {v.productos} <span style={{float:'right'}}>${v.total}</span>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
       </main>
 
-      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px' }}>
-        <button onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📦</button>
-        <button onClick={()=>setVista('pos')} style={{background: vista==='pos'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px', position:'relative'}}>🛒 {carrito.length>0 && <span style={{position:'absolute', top:0, right:0, background:'#ef4444', color:'#fff', borderRadius:'50%', width:'18px', height:'18px', fontSize:'10px', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}</button>
-        <button onClick={()=>setVista('admin')} style={{background: vista==='admin'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>⚡</button>
-        <button onClick={()=>setVista('historial')} style={{background: vista==='historial'?'#1e293b':'none', border:'none', fontSize:'24px', padding:'10px', borderRadius:'12px'}}>📈</button>
+      {/* NAVEGACIÓN INFERIOR */}
+      <nav style={{ position: 'fixed', bottom: '15px', left: '15px', right: '15px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '8px', borderRadius: '20px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)' }}>
+        <button title="Catálogo" onClick={()=>verificarAdmin('catalogo')} style={{...estilos.btnNav, color: vista==='catalogo'?'#10b981':'#94a3b8'}}>📦</button>
+        <button title="Caja" onClick={()=>verificarAdmin('pos')} style={{...estilos.btnNav, color: vista==='pos'?'#10b981':'#94a3b8', position:'relative'}}>
+          🛒 {carrito.length > 0 && <span style={{position:'absolute', top:'0', right:'0', background:'#ef4444', fontSize:'10px', color:'#fff', width:'18px', height:'18px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center'}}>{carrito.length}</span>}
+        </button>
+        <button title="Inventario" onClick={()=>verificarAdmin('admin')} style={{...estilos.btnNav, color: vista==='admin'?'#10b981':'#94a3b8'}}>⚡</button>
+        <button title="Reportes" onClick={()=>verificarAdmin('historial')} style={{...estilos.btnNav, color: vista==='historial'?'#10b981':'#94a3b8'}}>📈</button>
       </nav>
     </div>
   );
