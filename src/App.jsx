@@ -9,15 +9,12 @@ const supabase = createClient(
 const CLAVE_MAESTRA = "1234";
 
 export default function App() {
-  // --- SESIÓN Y SEGURIDAD ---
   const [usuario, setUsuario] = useState(localStorage.getItem('pacaUser') || '');
   const [tempNombre, setTempNombre] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [mostrandoPad, setMostrandoPad] = useState(false);
   const [passInput, setPassInput] = useState('');
   const [vistaPendiente, setVistaPendiente] = useState(null);
-
-  // --- DATOS ---
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
@@ -57,25 +54,18 @@ export default function App() {
     if (g) setGastos(g);
   }
 
-  // --- LÓGICA DE ACCESO ---
   const intentarEntrarA = (v) => {
     if ((v === 'admin' || v === 'historial') && !isAdmin) {
-      setVistaPendiente(v);
-      setMostrandoPad(true);
-    } else {
-      setVista(v);
-    }
+      setVistaPendiente(v); setMostrandoPad(true);
+    } else { setVista(v); }
   };
 
   const validarClave = () => {
     if (passInput === CLAVE_MAESTRA) {
       setIsAdmin(true); setVista(vistaPendiente); setMostrandoPad(false); setPassInput('');
-    } else {
-      alert("❌ Clave incorrecta"); setPassInput('');
-    }
+    } else { alert("❌ Clave incorrecta"); setPassInput(''); }
   };
 
-  // --- CÁLCULOS ---
   const carritoAgrupado = useMemo(() => {
     const grupos = {};
     carrito.forEach(item => {
@@ -115,47 +105,58 @@ export default function App() {
     return Object.entries(stats);
   }, [inventario]);
 
-  const corteDelDia = useMemo(() => {
-    const cortesFiltrados = cortes.filter(c => c.fechaFiltro === fechaConsulta);
-    return cortesFiltrados.length > 0 ? cortesFiltrados[cortesFiltrados.length - 1] : null;
-  }, [cortes, fechaConsulta]);
+  // --- NUEVA LÓGICA DE TICKET DE VENTA ---
+  async function finalizarVenta() {
+    if (carrito.length === 0) return;
+    const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
+    if (!m) return;
+    let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
+    
+    const totalVenta = carrito.reduce((a, b) => a + b.precio, 0);
+    const costoVenta = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
+    const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
-  // --- ACCIONES ---
+    try {
+      // 1. Guardar en Supabase
+      const listaProductos = carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ');
+      await supabase.from('ventas').insert([{ total: totalVenta, costo_total: costoVenta, vendedor: usuario, detalles: `${mTxt}: ${listaProductos}` }]);
+      
+      // 2. Actualizar Stock
+      for (const item of carritoAgrupado) {
+        const pDB = inventario.find(p => p.id === item.id);
+        if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
+      }
+
+      // 3. GENERAR TICKET WHATSAPP
+      let ticket = `*🛍️ TICKET DE VENTA - PACA PRO*\n`;
+      ticket += `📅 ${hoyStr} | 🕒 ${hora}\n`;
+      ticket += `👤 Atendió: ${usuario}\n`;
+      ticket += `--------------------------\n`;
+      carritoAgrupado.forEach(item => {
+        ticket += `▪️ ${item.nombre} x${item.cantCar} : $${item.subtotal.toFixed(2)}\n`;
+      });
+      ticket += `--------------------------\n`;
+      ticket += `💰 *TOTAL: $${totalVenta.toFixed(2)}*\n`;
+      ticket += `💳 Pago: ${mTxt}\n\n`;
+      ticket += `¡Gracias por su compra! ✨`;
+
+      window.open(`https://wa.me/?text=${encodeURIComponent(ticket)}`, '_blank');
+
+      // 4. Limpiar y refrescar
+      setCarrito([]); obtenerTodo(); setVista('catalogo');
+    } catch (e) { alert("Error al procesar venta"); }
+  }
+
   const realizarCorte = () => {
     const f = window.prompt(`ARQUEO: ¿Cuánto dinero hay en caja?`);
     if (!f) return;
     const fisico = Number(f);
     const esperado = filtrados.totalV - filtrados.totalG;
     const dif = fisico - esperado;
-    const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    
-    const nuevoCorte = { id: Date.now(), fechaFiltro: fechaConsulta, timestamp: `${fechaConsulta} ${hora}`, reportado: fisico, diferencia: dif };
-    const nuevosCortes = [...cortes, nuevoCorte];
-    setCortes(nuevosCortes);
-    localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
-    
-    const texto = `*🏁 CORTE PACA PRO*\n📅: ${fechaConsulta} (${hora})\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
+    const texto = `*🏁 CIERRE DE CAJA*\n📅: ${fechaConsulta}\n👤: ${usuario}\n💰 Ventas: $${filtrados.totalV}\n📉 Gastos: $${filtrados.totalG}\n💵 Caja: $${fisico}\n⚖️ Dif: $${dif.toFixed(2)}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
   };
 
-  async function finalizarVenta() {
-    if (carrito.length === 0) return;
-    const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
-    if (!m) return;
-    let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
-    try {
-      const tv = carrito.reduce((a, b) => a + b.precio, 0);
-      const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
-      await supabase.from('ventas').insert([{ total: tv, costo_total: cv, vendedor: usuario, detalles: `${mTxt}: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
-      for (const item of carritoAgrupado) {
-        const pDB = inventario.find(p => p.id === item.id);
-        if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
-      }
-      setCarrito([]); obtenerTodo(); setVista('catalogo');
-    } catch (e) { alert("Error"); }
-  }
-
-  // --- ESTILOS ---
   const card = { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' };
   const inputS = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', boxSizing: 'border-box' };
   const modalWrap = { position: 'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(15,23,42,0.9)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:'20px' };
@@ -177,7 +178,7 @@ export default function App() {
       {mostrandoPad && (
         <div style={modalWrap}>
           <div style={{ ...card, width: '280px', textAlign: 'center' }}>
-            <h3>🔐 Clave Maestra</h3>
+            <h3>🔐 Acceso Admin</h3>
             <input type="password" autoFocus style={{ ...inputS, fontSize:'24px', textAlign:'center', letterSpacing:'8px', marginBottom:'15px' }} value={passInput} onChange={e => setPassInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && validarClave()} />
             <div style={{ display:'flex', gap:'10px' }}>
                 <button onClick={() => setMostrandoPad(false)} style={{ flex:1, padding:'12px', background:'none', border:'1px solid #ddd', borderRadius:'10px' }}>X</button>
@@ -230,10 +231,6 @@ export default function App() {
 
         {vista === 'admin' && isAdmin && (
           <div style={card}>
-            <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-              <input placeholder="# Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={inputS}/>
-              <input placeholder="Prov." value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={inputS}/>
-            </div>
             <form onSubmit={async (e) => {
                 e.preventDefault();
                 await supabase.from('productos').insert([{ nombre: nuevoProd.nombre, precio: Number(nuevoProd.precio), costo_unitario: Number(nuevoProd.costo), stock: Number(nuevoProd.cantidad), paca: infoPaca.numero, proveedor: infoPaca.proveedor }]);
@@ -252,57 +249,14 @@ export default function App() {
         )}
 
         {vista === 'historial' && isAdmin && (
-          <>
-            <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
-              <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'10px', borderRadius:'8px', width:'100%', textAlign:'center'}} />
-              <div style={{display:'flex', justifyContent:'space-around', marginTop:'15px'}}>
-                <div><small>VENTAS</small><h3>${filtrados.totalV.toFixed(2)}</h3></div>
-                <div><small>UTILIDAD</small><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
-              </div>
-              <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
+          <div style={{...card, background:'#0f172a', color:'#fff', textAlign:'center'}}>
+            <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{background:'#1e293b', color:'#fff', border:'none', padding:'10px', borderRadius:'8px', width:'100%', textAlign:'center'}} />
+            <div style={{display:'flex', justifyContent:'space-around', marginTop:'15px'}}>
+              <div><small>VENTAS</small><h3>${filtrados.totalV.toFixed(2)}</h3></div>
+              <div><small>UTILIDAD</small><h3>${filtrados.utilidad.toFixed(2)}</h3></div>
             </div>
-
-            {corteDelDia && (
-              <div style={{...card, borderLeft:'5px solid #10b981', backgroundColor:'#ecfdf5'}}>
-                <p style={{margin:0, fontSize:'11px'}}><b>Último Arqueo:</b> {corteDelDia.timestamp.split(' ')[1]} | <b>Físico:</b> ${corteDelDia.reportado} | <b>Dif:</b> ${corteDelDia.diferencia}</p>
-              </div>
-            )}
-
-            <div style={card}>
-              <h3 style={{fontSize:'13px', marginTop:0}}>💸 Gastos</h3>
-              <form onSubmit={async (e)=>{
-                  e.preventDefault();
-                  await supabase.from('gastos').insert([{ concepto: nuevoGasto.concepto, monto: Number(nuevoGasto.monto), vendedor: usuario }]);
-                  setNuevoGasto({ concepto: '', monto: '' }); obtenerTodo();
-              }} style={{display:'flex', gap:'5px', marginBottom:'15px'}}>
-                <input placeholder="Concepto" value={nuevoGasto.concepto} onChange={e=>setNuevoGasto({...nuevoGasto, concepto: e.target.value})} style={inputS} required />
-                <input type="number" placeholder="$" value={nuevoGasto.monto} onChange={e=>setNuevoGasto({...nuevoGasto, monto: e.target.value})} style={{...inputS, width:'80px'}} required />
-                <button style={{background:'#ef4444', color:'#fff', border:'none', borderRadius:'8px', padding:'0 15px'}}>+</button>
-              </form>
-              {filtrados.gst.map((g, i) => (
-                <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'12px', padding:'5px 0', borderBottom:'1px solid #f1f5f9'}}>
-                  <span>{g.concepto}</span><b style={{color:'#ef4444'}}>-${Number(g.monto).toFixed(2)}</b>
-                </div>
-              ))}
-            </div>
-            
-            <div style={card}>
-                <h3 style={{fontSize:'13px', marginTop:0}}>📊 Inventario Prov.</h3>
-                <table style={{width:'100%', fontSize:'11px', textAlign:'left'}}>
-                    <thead><tr style={{color:'#64748b'}}><th>Prov.</th><th>Stock</th><th>Inv.</th><th>Est.</th></tr></thead>
-                    <tbody>
-                        {statsProveedores.map(([n, s]) => (
-                            <tr key={n} style={{borderBottom:'1px solid #f1f5f9'}}>
-                                <td style={{padding:'8px 0'}}>{n}</td>
-                                <td>{s.stock}</td>
-                                <td>${s.inversion.toFixed(0)}</td>
-                                <td style={{color:'#10b981'}}>${s.ventaEsperada.toFixed(0)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-          </>
+            <button onClick={realizarCorte} style={{width:'100%', marginTop:'10px', padding:'10px', background:'#10b981', border:'none', borderRadius:'8px', color:'#fff', fontWeight:'bold'}}>CERRAR DÍA 🏁</button>
+          </div>
         )}
       </main>
 
