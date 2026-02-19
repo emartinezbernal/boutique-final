@@ -7,14 +7,16 @@ const supabase = createClient(
 );
 
 export default function App() {
-  // --- ESTADOS ---
+  // --- ESTADOS DE SESIÓN Y SEGURIDAD ---
   const [usuario, setUsuario] = useState(localStorage.getItem('userPacaPro') || '');
+  const [tempUser, setTempUser] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [passMaestra] = useState('1234');
   const [passInput, setPassInput] = useState('');
   const [mostrandoLoginAdmin, setMostrandoLoginAdmin] = useState(false);
   const [vistaPendiente, setVistaPendiente] = useState(null);
   
+  // --- ESTADOS DE DATOS ---
   const [carrito, setCarrito] = useState([]);
   const [vista, setVista] = useState('catalogo');
   const [inventario, setInventario] = useState([]);
@@ -44,7 +46,16 @@ export default function App() {
     if (v) setHistorial(v);
   }
 
-  // --- NAVEGACIÓN SEGURA ---
+  // --- LÓGICA DE LOGIN ---
+  const manejarIngreso = () => {
+    if (tempUser.trim() !== '') {
+      setUsuario(tempUser);
+      localStorage.setItem('userPacaPro', tempUser);
+    } else {
+      alert("Por favor, ingresa un nombre de vendedor");
+    }
+  };
+
   const intentarAccesoAdmin = (nuevaVista) => {
     if (['admin', 'historial'].includes(nuevaVista) && !isAdmin) {
       setVistaPendiente(nuevaVista);
@@ -66,12 +77,10 @@ export default function App() {
     }
   };
 
-  // --- TRANSACCIONES ---
+  // --- FUNCIONES DE VENTA ---
   async function registrarVenta() {
     const vTotal = carrito.reduce((a, b) => a + b.precio, 0);
     const cTotal = carrito.reduce((a, b) => a + b.costo_unitario, 0);
-    
-    // Almacenamos el proveedor explícitamente en la descripción para facilitar el reporte
     const detalleProductos = carrito.map(p => `${p.nombre} [PROV: ${p.proveedor || 'N/A'}]`).join(' | ');
 
     const { error } = await supabase.from('ventas').insert([{ 
@@ -82,32 +91,17 @@ export default function App() {
       for (const item of carrito) { 
         await supabase.from('productos').update({ stock: item.stock - 1 }).eq('id', item.id); 
       }
-      setCarrito([]); obtenerTodo(); setVista('catalogo'); alert("✅ Venta completada");
+      setCarrito([]); obtenerTodo(); setVista('catalogo'); alert("✅ Venta registrada");
     }
   }
 
-  // --- GESTIÓN DE INVENTARIO ---
-  async function guardarProductoNuevo(e) {
-    e.preventDefault();
-    const { error } = await supabase.from('productos').insert([{ 
-      nombre: nuevoProd.nombre, precio: Number(nuevoProd.precio), costo_unitario: Number(nuevoProd.costo), 
-      stock: Number(nuevoProd.cantidad), paca: infoPaca.numero, proveedor: infoPaca.proveedor, creado_por: usuario 
-    }]);
-    if (!error) { 
-      setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 }); 
-      obtenerTodo(); 
-      inputNombreRef.current?.focus(); 
-    }
-  }
-
+  // --- REPORTE INTEGRAL ---
   const reporteFinal = useMemo(() => {
     const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
     let ventasDia = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
-    
     if (filtroProvStats.trim() !== '') {
       ventasDia = ventasDia.filter(v => v.productos.toLowerCase().includes(filtroProvStats.toLowerCase()));
     }
-
     const vTotal = ventasDia.reduce((a, b) => a + b.total, 0);
     const cTotal = ventasDia.reduce((a, b) => a + b.costo_total, 0);
     return { vnt: ventasDia, vTotal, ganancia: vTotal - cTotal };
@@ -116,18 +110,24 @@ export default function App() {
   const estilos = {
     card: { background: '#fff', borderRadius: '15px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '12px' },
     input: { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', boxSizing: 'border-box' },
-    btnPrimary: { width: '100%', padding: '12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold' },
-    overlay: { position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.9)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }
+    btnPrimary: { width: '100%', padding: '12px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' },
+    overlay: { position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.95)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }
   };
 
+  // --- PANTALLA DE ACCESO ---
   if (!usuario) {
     return (
       <div style={{ background: '#0f172a', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
         <div style={{ background: '#fff', padding: '30px', borderRadius: '25px', width: '100%', maxWidth: '350px', textAlign: 'center' }}>
           <h1 style={{ color: '#0f172a', margin: 0 }}>PACA PRO</h1>
-          <p style={{ color: '#64748b', fontSize: '11px', marginBottom: '20px' }}>v15.4 FINAL FIX</p>
-          <input placeholder="Nombre Vendedor" onChange={e => setTempUser(e.target.value)} style={{ ...estilos.input, textAlign: 'center', marginBottom: '15px' }} />
-          <button onClick={() => {if(tempUser){setUsuario(tempUser); localStorage.setItem('userPacaPro', tempUser);}}} style={estilos.btnPrimary}>INGRESAR</button>
+          <p style={{ color: '#64748b', fontSize: '11px', marginBottom: '25px' }}>v15.5 CORREGIDA</p>
+          <input 
+            placeholder="Nombre del Vendedor" 
+            value={tempUser}
+            onChange={e => setTempUser(e.target.value)} 
+            style={{ ...estilos.input, textAlign: 'center', marginBottom: '15px' }} 
+          />
+          <button onClick={manejarIngreso} style={estilos.btnPrimary}>INGRESAR</button>
         </div>
       </div>
     );
@@ -136,23 +136,26 @@ export default function App() {
   return (
     <div style={{ backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '100px' }}>
       
+      {/* MODAL CLAVE MAESTRA */}
       {mostrandoLoginAdmin && (
         <div style={estilos.overlay}>
           <div style={{background:'#fff', padding:'25px', borderRadius:'20px', width:'100%', maxWidth:'300px', textAlign:'center'}}>
-            <h3 style={{marginTop:0}}>🔐 Clave de Acceso</h3>
+            <h3 style={{marginTop:0}}>🔐 Clave Maestra</h3>
             <input type="password" autoFocus value={passInput} onChange={e => setPassInput(e.target.value)} style={{...estilos.input, textAlign:'center', fontSize:'24px', letterSpacing:'5px', marginBottom:'15px'}} />
-            <button onClick={confirmarPassword} style={estilos.btnPrimary}>DESBLOQUEAR</button>
-            <button onClick={()=>{setMostrandoLoginAdmin(false); setPassInput('');}} style={{background:'none', border:'none', marginTop:'10px', color:'#ef4444'}}>Cancelar</button>
+            <button onClick={confirmarPassword} style={estilos.btnPrimary}>ACCEDER</button>
+            <button onClick={()=>{setMostrandoLoginAdmin(false); setPassInput('');}} style={{background:'none', border:'none', marginTop:'15px', color:'#ef4444', cursor:'pointer'}}>Cancelar</button>
           </div>
         </div>
       )}
 
       <header style={{ background: '#0f172a', color: '#fff', padding: '15px', textAlign: 'center' }}>
-        <h2 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color: isAdmin ? '#10b981' : '#f59e0b'}}>{isAdmin ? '🛡️ MODO ADMIN' : '🛒 VENTAS'}</span></h2>
+        <h2 style={{margin:0, fontSize:'16px'}}>PACA PRO <span style={{color: isAdmin ? '#10b981' : '#f59e0b'}}>{isAdmin ? '🛡️ ADMIN' : '🛒 VENTAS'}</span></h2>
+        <div style={{fontSize:'10px', opacity:0.7}}>{usuario} | <span onClick={()=>{setUsuario(''); localStorage.removeItem('userPacaPro');}} style={{textDecoration:'underline'}}>Cerrar Sesión</span></div>
       </header>
 
       <main style={{ padding: '15px', maxWidth: '600px', margin: '0 auto' }}>
         
+        {/* CATÁLOGO */}
         {vista === 'catalogo' && (
           <>
             <input placeholder="🔍 Buscar producto..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...estilos.input, marginBottom:'15px'}} />
@@ -169,106 +172,85 @@ export default function App() {
           </>
         )}
 
-        {/* VISTA ESTADÍSTICAS (TABLA DE PROVEEDORES COMPLETA) */}
+        {/* ESTADÍSTICAS COMPLETAS (PROVEEDORES) */}
         {vista === 'historial' && isAdmin && (
           <div style={estilos.card}>
-             <h3 style={{marginTop:0}}>📈 REPORTE DE PROVEEDORES</h3>
-             
+             <h3 style={{marginTop:0}}>📈 ESTADÍSTICAS Y PROVEEDORES</h3>
              <div style={{display:'flex', gap:'5px', marginBottom:'15px'}}>
                <input type="date" value={fechaConsulta} onChange={e=>setFechaConsulta(e.target.value)} style={{...estilos.input, flex:1}} />
                <input placeholder="Filtrar Proveedor..." value={filtroProvStats} onChange={e=>setFiltroProvStats(e.target.value)} style={{...estilos.input, flex:1.2, border:'2px solid #10b981'}} />
              </div>
-             
              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom:'20px'}}>
-                <div style={{background:'#f1f5f9', padding:'10px', borderRadius:'10px', textAlign:'center'}}>
-                   <small>INGRESOS TOTALES</small><br/><b>${reporteFinal.vTotal}</b>
+                <div style={{background:'#f8fafc', padding:'10px', borderRadius:'10px', textAlign:'center'}}>
+                   <small>INGRESOS</small><br/><b>${reporteFinal.vTotal}</b>
                 </div>
                 <div style={{background:'#ecfdf5', padding:'10px', borderRadius:'10px', textAlign:'center', color:'#059669'}}>
-                   <small>UTILIDAD NETA</small><br/><b>${reporteFinal.ganancia}</b>
+                   <small>UTILIDAD</small><br/><b>${reporteFinal.ganancia}</b>
                 </div>
              </div>
-
              <div style={{overflowX: 'auto'}}>
                <table style={{width:'100%', borderCollapse:'collapse', fontSize:'11px'}}>
                  <thead>
                    <tr style={{background:'#0f172a', color:'#fff'}}>
                      <th style={{padding:'10px', textAlign:'left'}}>HORA</th>
-                     <th style={{padding:'10px', textAlign:'left'}}>DETALLE / PROVEEDOR</th>
-                     <th style={{padding:'10px', textAlign:'right'}}>VENTA</th>
+                     <th style={{padding:'10px', textAlign:'left'}}>PRODUCTOS Y PROVEEDOR</th>
+                     <th style={{padding:'10px', textAlign:'right'}}>TOTAL</th>
                    </tr>
                  </thead>
                  <tbody>
                    {reporteFinal.vnt.map((v, i) => (
-                     <tr key={i} style={{borderBottom:'1px solid #e2e8f0'}}>
-                       <td style={{padding:'10px'}}>{new Date(v.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                       <td style={{padding:'10px', color:'#1e293b'}}>{v.productos}</td>
+                     <tr key={i} style={{borderBottom:'1px solid #eee'}}>
+                       <td style={{padding:'10px'}}>{new Date(v.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</td>
+                       <td style={{padding:'10px'}}>{v.productos}</td>
                        <td style={{padding:'10px', textAlign:'right', fontWeight:'bold'}}>${v.total}</td>
                      </tr>
                    ))}
                  </tbody>
                </table>
-               {reporteFinal.vnt.length === 0 && <p style={{textAlign:'center', color:'#94a3b8', padding:'20px'}}>No hay registros para este filtro</p>}
              </div>
           </div>
         )}
 
-        {/* VISTA GESTIÓN INVENTARIO */}
+        {/* GESTIÓN (ADMIN) */}
         {vista === 'admin' && isAdmin && (
-          <>
-            <div style={estilos.card}>
-              <h3>⚡ CARGA DE MERCANCÍA</h3>
-              <form onSubmit={guardarProductoNuevo}>
-                <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                  <input placeholder="ID Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={estilos.input}/>
-                  <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={estilos.input}/>
-                </div>
-                <input ref={inputNombreRef} placeholder="Prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...estilos.input, marginBottom:'10px'}} required />
-                <div style={{display:'flex', gap:'5px'}}>
-                  <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={estilos.input} />
-                  <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={estilos.input} />
-                  <input type="number" placeholder="Stk" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={estilos.input} />
-                </div>
-                <button type="submit" style={{...estilos.btnPrimary, marginTop:'10px'}}>AÑADIR A STOCK</button>
-              </form>
+          <div style={estilos.card}>
+            <h3>⚡ CARGAR PRODUCTO</h3>
+            <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+              <input placeholder="N° Paca" value={infoPaca.numero} onChange={e=>setInfoPaca({...infoPaca, numero: e.target.value})} style={estilos.input}/>
+              <input placeholder="Proveedor" value={infoPaca.proveedor} onChange={e=>setInfoPaca({...infoPaca, proveedor: e.target.value})} style={estilos.input}/>
             </div>
-            <div style={estilos.card}>
-              <input placeholder="🔍 Buscar para editar..." value={busquedaAdmin} onChange={e=>setBusquedaAdmin(e.target.value)} style={estilos.input} />
-              {inventario.filter(p => p.nombre.toLowerCase().includes(busquedaAdmin.toLowerCase())).map(p => (
-                <div key={p.id} style={{padding:'10px 0', borderBottom:'1px solid #eee'}}>
-                   <div style={{display:'flex', justifyContent:'space-between'}}>
-                      <span style={{fontWeight:'bold'}}>{p.nombre} <small style={{color:'#64748b'}}>[{p.proveedor}]</small></span>
-                      <button onClick={async()=>{if(window.confirm('¿Eliminar?')){await supabase.from('productos').delete().eq('id',p.id); obtenerTodo();}}}>🗑️</button>
-                   </div>
-                   <div style={{display:'flex', gap:'10px', marginTop:'5px'}}>
-                      <input type="number" defaultValue={p.precio} onBlur={e=> {supabase.from('productos').update({precio:Number(e.target.value)}).eq('id',p.id).then(obtenerTodo)}} style={{...estilos.input, padding:'5px'}} />
-                      <input type="number" defaultValue={p.stock} onBlur={e=> {supabase.from('productos').update({stock:Number(e.target.value)}).eq('id',p.id).then(obtenerTodo)}} style={{...estilos.input, padding:'5px'}} />
-                   </div>
-                </div>
-              ))}
+            <input ref={inputNombreRef} placeholder="Nombre Prenda" value={nuevoProd.nombre} onChange={e=>setNuevoProd({...nuevoProd, nombre: e.target.value})} style={{...estilos.input, marginBottom:'10px'}} />
+            <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+              <input type="number" placeholder="Costo" value={nuevoProd.costo} onChange={e=>setNuevoProd({...nuevoProd, costo: e.target.value})} style={estilos.input} />
+              <input type="number" placeholder="Venta" value={nuevoProd.precio} onChange={e=>setNuevoProd({...nuevoProd, precio: e.target.value})} style={estilos.input} />
+              <input type="number" placeholder="Cant" value={nuevoProd.cantidad} onChange={e=>setNuevoProd({...nuevoProd, cantidad: e.target.value})} style={estilos.input} />
             </div>
-          </>
+            <button onClick={async()=>{
+               await supabase.from('productos').insert([{nombre:nuevoProd.nombre, precio:Number(nuevoProd.precio), costo_unitario:Number(nuevoProd.costo), stock:Number(nuevoProd.cantidad), paca:infoPaca.numero, proveedor:infoPaca.proveedor}]);
+               setNuevoProd({...nuevoProd, nombre:''}); obtenerTodo();
+            }} style={estilos.btnPrimary}>GUARDAR EN INVENTARIO</button>
+          </div>
         )}
 
-        {/* VISTA CAJA (POS) */}
+        {/* CARRITO (POS) */}
         {vista === 'pos' && (
           <div style={{textAlign:'center'}}>
-            <div style={{...estilos.card, background:'#0f172a', color:'#10b981'}}>
-              <p style={{margin:0, color:'#fff', fontSize:'12px'}}>TOTAL A COBRAR</p>
+            <div style={{...estilos.card, background:'#1e293b', color:'#10b981'}}>
               <h2 style={{fontSize:'40px', margin:0}}>${carrito.reduce((a,b)=>a+b.precio, 0)}</h2>
             </div>
             {carrito.map((item, i) => (
-              <div key={i} style={{...estilos.card, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                <div style={{textAlign:'left'}}><b>{item.nombre}</b><br/><small>{item.proveedor}</small></div>
-                <button onClick={()=>setCarrito(carrito.filter((_, idx) => idx !== i))} style={{color:'#ef4444', border:'none', background:'none'}}>Quitar</button>
+              <div key={i} style={{...estilos.card, display:'flex', justifyContent:'space-between'}}>
+                <span>{item.nombre}</span>
+                <button onClick={()=>setCarrito(carrito.filter((_, idx)=>idx!==i))} style={{color:'#ef4444', border:'none', background:'none'}}>Eliminar</button>
               </div>
             ))}
-            {carrito.length > 0 && <button onClick={registrarVenta} style={{...estilos.btnPrimary, padding:'15px', fontSize:'18px'}}>REGISTRAR VENTA</button>}
+            {carrito.length > 0 && <button onClick={registrarVenta} style={{...estilos.btnPrimary, padding:'20px'}}>FINALIZAR VENTA</button>}
           </div>
         )}
 
       </main>
 
-      <nav style={{ position: 'fixed', bottom: '15px', left: '15px', right: '15px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '10px', borderRadius: '25px', zIndex: 100 }}>
+      <nav style={{ position: 'fixed', bottom: '15px', left: '15px', right: '15px', background: '#0f172a', display: 'flex', justifyContent: 'space-around', padding: '10px', borderRadius: '25px' }}>
         <button onClick={()=>intentarAccesoAdmin('catalogo')} style={{background:'none', border:'none', fontSize:'22px', color: vista==='catalogo'?'#10b981':'#94a3b8'}}>📦</button>
         <button onClick={()=>intentarAccesoAdmin('pos')} style={{background:'none', border:'none', fontSize:'22px', color: vista==='pos'?'#10b981':'#94a3b8'}}>🛒</button>
         <button onClick={()=>intentarAccesoAdmin('admin')} style={{background:'none', border:'none', fontSize:'22px', color: vista==='admin'?'#10b981':'#94a3b8'}}>⚡</button>
