@@ -15,7 +15,9 @@ const theme = {
   textMuted: '#94a3b8',
   accent: '#10b981',
   danger: '#ef4444',
-  live: '#eab308'
+  live: '#eab308',
+  pdf: '#e11d48',
+  excel: '#16a34a'
 };
 
 export default function App() {
@@ -58,11 +60,19 @@ export default function App() {
       const cortesGuardados = localStorage.getItem('cortesPacaPro');
       if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
       
-      // CARGAR SCRIPT DE EXCEL DINÁMICAMENTE
+      // CARGAR LIBRERÍAS DE EXPORTACIÓN DINÁMICAMENTE
       if (!window.XLSX) {
-        const script = document.createElement("script");
-        script.src = "https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js";
-        document.head.appendChild(script);
+        const sExcel = document.createElement("script");
+        sExcel.src = "https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js";
+        document.head.appendChild(sExcel);
+      }
+      if (!window.jspdf) {
+        const sPdf = document.createElement("script");
+        sPdf.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        document.head.appendChild(sPdf);
+        const sPdfTable = document.createElement("script");
+        sPdfTable.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js";
+        document.head.appendChild(sPdfTable);
       }
     }
   }, [usuarioActual]);
@@ -76,7 +86,34 @@ export default function App() {
     if (g) setGastos(g);
   }
 
-  // Lógica de Login
+  // --- FUNCIONES DE EXPORTACIÓN ---
+  const exportarExcelGenerico = (datos, nombreArchivo) => {
+    if (!window.XLSX) return alert("Cargando motor de Excel...");
+    const ws = window.XLSX.utils.json_to_sheet(datos);
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Datos");
+    window.XLSX.writeFile(wb, `${nombreArchivo}_${hoyStr}.xlsx`);
+  };
+
+  const exportarPDFGenerico = (titulo, columnas, filas, nombreArchivo) => {
+    if (!window.jspdf) return alert("Cargando motor de PDF...");
+    const doc = new window.jspdf.jsPDF();
+    doc.setFontSize(18);
+    doc.text(titulo, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generado por: ${usuarioActual} - ${new Date().toLocaleString()}`, 14, 30);
+    doc.autoTable({
+      startY: 35,
+      head: [columnas],
+      body: filas,
+      theme: 'grid',
+      headStyles: { fillColor: [16, 185, 129] }
+    });
+    doc.save(`${nombreArchivo}_${hoyStr}.pdf`);
+  };
+
+  // --- LÓGICA DE LOGIN ---
   const manejarLogin = (e) => {
     e.preventDefault();
     if (inputLogin.trim()) {
@@ -89,28 +126,6 @@ export default function App() {
   const cerrarSesion = () => {
     localStorage.removeItem('userPacaPro');
     setUsuarioActual('');
-  };
-
-  // --- LÓGICA EXPORTAR EXCEL (NUEVA) ---
-  const exportarAExcel = () => {
-    if (!window.XLSX) return alert("Cargando motor de Excel, reintenta en un segundo...");
-    if (inventario.length === 0) return alert("No hay datos para exportar");
-
-    const datosFormateados = inventario.map(p => ({
-      "ID": p.id,
-      "FECHA REGISTRO": new Date(p.created_at).toLocaleDateString(),
-      "PACA": p.paca || "N/A",
-      "PROVEEDOR": p.proveedor || "N/A",
-      "PRODUCTO": p.nombre,
-      "COSTO UNITARIO": p.costo_unitario,
-      "PRECIO VENTA": p.precio,
-      "STOCK": p.stock
-    }));
-
-    const ws = window.XLSX.utils.json_to_sheet(datosFormateados);
-    const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, "Inventario");
-    window.XLSX.writeFile(wb, `Inventario_PacaPro_${hoyStr}.xlsx`);
   };
 
   // --- LÓGICA LIVE ---
@@ -298,6 +313,7 @@ export default function App() {
   const cardStyle = { background: theme.card, borderRadius: '15px', padding: '15px', border: `1px solid ${theme.border}`, marginBottom: '12px', color: theme.text };
   const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text, boxSizing: 'border-box' };
   const btnClass = "btn-interactivo";
+  const btnExportStyle = { padding: '8px 12px', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' };
 
   // --- PANTALLA LOGIN ---
   if (!usuarioActual) {
@@ -348,7 +364,14 @@ export default function App() {
               </div>
             </div>
 
-            <h3 style={{fontSize:'12px', color:theme.textMuted}}>ÚLTIMAS ASIGNACIONES</h3>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+              <h3 style={{fontSize:'12px', color:theme.textMuted, margin:0}}>ÚLTIMAS ASIGNACIONES</h3>
+              <div style={{display:'flex', gap:'5px'}}>
+                <button onClick={() => exportarExcelGenerico(capturasLive, 'Live_Capturas')} style={{...btnExportStyle, background: theme.excel}}>XLS</button>
+                <button onClick={() => exportarPDFGenerico('ASIGNACIONES LIVE', ['Cliente', 'Folio', 'Metodo', 'Total'], capturasLive.map(c => [c.cliente, c.folio, c.metodo, `$${c.total}`]), 'Live_Capturas')} style={{...btnExportStyle, background: theme.pdf}}>PDF</button>
+              </div>
+            </div>
+
             {capturasLive.map((cap) => (
               <div key={cap.id} style={cardStyle}>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
@@ -403,13 +426,13 @@ export default function App() {
               </form>
             </div>
 
-            <button 
-              onClick={exportarAExcel}
-              className={btnClass}
-              style={{ width: '100%', marginBottom: '12px', padding: '10px', background: '#1d6f42', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-            >
-              📊 EXPORTAR INVENTARIO A EXCEL
-            </button>
+            <div style={{...cardStyle, border:`1px solid ${theme.excel}50`}}>
+               <h3 style={{fontSize:'12px', margin:'0 0 10px 0', color:theme.excel}}>📦 EXPORTAR INVENTARIO TOTAL</h3>
+               <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+                  <button onClick={() => exportarExcelGenerico(inventario, 'Inventario_Completo')} style={{...btnExportStyle, background: theme.excel, justifyContent:'center'}}>EXCEL</button>
+                  <button onClick={() => exportarPDFGenerico('INVENTARIO COMPLETO', ['Nombre', 'Paca', 'Costo', 'Venta', 'Stock'], inventario.map(p => [p.nombre, p.paca, `$${p.costo_unitario}`, `$${p.precio}`, p.stock]), 'Inventario_Completo')} style={{...btnExportStyle, background: theme.pdf, justifyContent:'center'}}>PDF</button>
+               </div>
+            </div>
 
             <div style={cardStyle}>
               <h3 style={{fontSize:'14px', marginTop:0}}>📊 ESTADÍSTICAS POR PROVEEDOR</h3>
@@ -466,7 +489,13 @@ export default function App() {
             </div>
 
             <div style={cardStyle}>
-              <h3 style={{fontSize:'12px', marginTop:0, color:theme.textMuted}}>🧾 REGISTRO DETALLADO DE VENTAS</h3>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                <h3 style={{fontSize:'12px', margin:0, color:theme.textMuted}}>🧾 REGISTRO DE VENTAS</h3>
+                <div style={{display:'flex', gap:'5px'}}>
+                   <button onClick={() => exportarExcelGenerico(filtrados.vnt, 'Ventas_Dia')} style={{...btnExportStyle, background: theme.excel}}>XLS</button>
+                   <button onClick={() => exportarPDFGenerico(`VENTAS DEL DÍA ${fechaConsulta}`, ['ID', 'Detalle', 'Total'], filtrados.vnt.map(v => [v.id, v.detalles, `$${v.total}`]), 'Ventas_Dia')} style={{...btnExportStyle, background: theme.pdf}}>PDF</button>
+                </div>
+              </div>
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%', fontSize:'10px', borderCollapse:'collapse'}}>
                   <thead>
@@ -500,7 +529,13 @@ export default function App() {
             </div>
 
             <div style={cardStyle}>
-              <h3 style={{fontSize:'12px', marginTop:0, color:theme.textMuted}}>📋 HISTORIAL DE CORTES DIARIOS</h3>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                <h3 style={{fontSize:'12px', margin:0, color:theme.textMuted}}>📋 CORTES DE CAJA</h3>
+                <div style={{display:'flex', gap:'5px'}}>
+                   <button onClick={() => exportarExcelGenerico(cortes, 'Cortes_Historico')} style={{...btnExportStyle, background: theme.excel}}>XLS</button>
+                   <button onClick={() => exportarPDFGenerico('HISTORIAL DE CORTES', ['Fecha', 'Responsable', 'Reportado', 'Dif'], cortes.map(c => [c.timestamp, c.responsable, `$${c.reportado}`, `$${c.diferencia}`]), 'Cortes_Historico')} style={{...btnExportStyle, background: theme.pdf}}>PDF</button>
+                </div>
+              </div>
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%', fontSize:'10px', borderCollapse:'collapse'}}>
                   <thead>
