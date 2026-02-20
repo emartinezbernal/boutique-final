@@ -1,4 +1,438 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+iimport React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  'https://jznfomuaxipfigxgokap.supabase.co', 
+  'sb_publishable_WjqrlE0gXGWUUYSkefmZBQ_NIzjJHNn'
+);
+
+// --- TEMA DARK MODE ---
+const theme = {
+  bg: '#020617',
+  card: '#0f172a',
+  border: '#1e293b',
+  text: '#f8fafc',
+  textMuted: '#94a3b8',
+  accent: '#10b981',
+  danger: '#ef4444',
+  live: '#eab308',
+  pdf: '#e11d48',
+  excel: '#16a34a',
+  warning: '#f59e0b'
+};
+
+export default function App() {
+  const [usuarioActual, setUsuarioActual] = useState(localStorage.getItem('userPacaPro') || '');
+  const [inputLogin, setInputLogin] = useState('');
+
+  const [carrito, setCarrito] = useState([]);
+  const [vista, setVista] = useState('live'); 
+  const [inventario, setInventario] = useState([]);
+  const [busqueda, setBusqueda] = useState('');
+  const [historial, setHistorial] = useState([]);
+  const [gastos, setGastos] = useState([]);
+  const [cortes, setCortes] = useState([]);
+  
+  // ESTADO PARA APARTADOS
+  const [apartados, setApartados] = useState(() => {
+    const guardados = localStorage.getItem('apartadosPacaPro');
+    return guardados ? JSON.parse(guardados) : [];
+  });
+
+  const [clienteLive, setClienteLive] = useState('');
+  const [precioLiveManual, setPrecioLiveManual] = useState('');
+  const [capturasLive, setCapturasLive] = useState([]);
+  const inputClienteRef = useRef(null);
+  
+  const obtenerFechaLocal = () => {
+    const d = new Date();
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - (offset * 60 * 1000));
+    return local.toISOString().split('T')[0];
+  };
+
+  const hoyStr = useMemo(() => obtenerFechaLocal(), []);
+  const [fechaConsulta, setFechaConsulta] = useState(hoyStr);
+  
+  const [infoPaca, setInfoPaca] = useState({ numero: '', proveedor: '' });
+  const [nuevoProd, setNuevoProd] = useState({ nombre: '', precio: '', costo: '', cantidad: 1 });
+  const inputNombreRef = useRef(null);
+
+  useEffect(() => { 
+    if (usuarioActual) {
+      obtenerTodo(); 
+      const cortesGuardados = localStorage.getItem('cortesPacaPro');
+      if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
+      
+      if (!window.XLSX) {
+        const sExcel = document.createElement("script");
+        sExcel.src = "https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js";
+        document.head.appendChild(sExcel);
+      }
+      if (!window.jspdf) {
+        const sPdf = document.createElement("script");
+        sPdf.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        document.head.appendChild(sPdf);
+        const sPdfTable = document.createElement("script");
+        sPdfTable.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js";
+        document.head.appendChild(sPdfTable);
+      }
+    }
+  }, [usuarioActual]);
+
+  useEffect(() => {
+    localStorage.setItem('apartadosPacaPro', JSON.stringify(apartados));
+  }, [apartados]);
+
+  async function obtenerTodo() {
+    const { data: p } = await supabase.from('productos').select('*').order('created_at', { ascending: false });
+    if (p) setInventario(p);
+    const { data: v } = await supabase.from('ventas').select('*').order('created_at', { ascending: false });
+    if (v) setHistorial(v);
+    const { data: g } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
+    if (g) setGastos(g);
+  }
+
+  // --- LÓGICA DE EXPORTACIÓN ---
+  const exportarExcelGenerico = (datos, nombreArchivo) => {
+    if (!window.XLSX) return alert("Cargando motor de Excel...");
+    const ws = window.XLSX.utils.json_to_sheet(datos);
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Datos");
+    window.XLSX.writeFile(wb, `${nombreArchivo}_${hoyStr}.xlsx`);
+  };
+
+  const exportarPDFGenerico = (titulo, columnas, filas, nombreArchivo) => {
+    if (!window.jspdf) return alert("Cargando motor de PDF...");
+    const doc = new window.jspdf.jsPDF();
+    doc.setFontSize(18);
+    doc.text(titulo, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generado por: ${usuarioActual} - ${new Date().toLocaleString()}`, 14, 30);
+    doc.autoTable({
+      startY: 35,
+      head: [columnas],
+      body: filas,
+      theme: 'grid',
+      headStyles: { fillColor: [16, 185, 129] }
+    });
+    doc.save(`${nombreArchivo}_${hoyStr}.pdf`);
+  };
+
+  // --- LÓGICA APARTADOS (ADICIÓN) ---
+  const [formApartado, setFormApartado] = useState({ cliente: '', producto: '', total: '', anticipo: '' });
+
+  const guardarApartado = (e) => {
+    e.preventDefault();
+    const fechaActual = new Date();
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaActual.getDate() + 7); // 7 días para liquidar
+
+    const nuevoAp = {
+      id: Date.now(),
+      ...formApartado,
+      total: Number(formApartado.total),
+      anticipo: Number(formApartado.anticipo),
+      restante: Number(formApartado.total) - Number(formApartado.anticipo),
+      fecha: fechaActual.toISOString(),
+      limite: fechaLimite.toISOString(),
+      vendedor: usuarioActual
+    };
+
+    setApartados([nuevoAp, ...apartados]);
+    setFormApartado({ cliente: '', producto: '', total: '', anticipo: '' });
+  };
+
+  const enviarWhatsAppApartado = (ap) => {
+    const limite = new Date(ap.limite).toLocaleDateString();
+    let msg = `*📌 COMPROBANTE DE APARTADO - PACA PRO*\n\n`;
+    msg += `👤 Cliente: *${ap.cliente.toUpperCase()}*\n`;
+    msg += `📦 Producto: *${ap.producto}*\n`;
+    msg += `💰 Total: *$${ap.total}*\n`;
+    msg += `💵 Anticipo: *$${ap.anticipo}*\n`;
+    msg += `📉 *SALDO PENDIENTE: $${ap.restante}*\n\n`;
+    msg += `⏳ Fecha Límite: *${limite}*\n`;
+    msg += `⚠️ _Si no se liquida antes de la fecha, el artículo volverá a inventario._\n\n`;
+    msg += `¡Gracias por tu compra! ✨`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const eliminarApartado = (id) => {
+    if(window.confirm("¿Deseas eliminar este registro?")) {
+      setApartados(apartados.filter(a => a.id !== id));
+    }
+  };
+
+  // --- LÓGICA LOGIN ---
+  const manejarLogin = (e) => {
+    e.preventDefault();
+    if (inputLogin.trim()) {
+      const user = inputLogin.trim().toUpperCase();
+      setUsuarioActual(user);
+      localStorage.setItem('userPacaPro', user);
+    }
+  };
+
+  const cerrarSesion = () => {
+    localStorage.removeItem('userPacaPro');
+    setUsuarioActual('');
+  };
+
+  // --- LÓGICA LIVE ---
+  const registrarCapturaLive = async (precio) => {
+    if (!clienteLive.trim() || precio <= 0) return;
+    const metodo = window.prompt("Entrega: 1. Envío | 2. Local | 3. Punto Medio", "1");
+    const metodoTxt = metodo === "1" ? "Envío a domicilio" : metodo === "2" ? "Recoge en local" : "Punto medio";
+    let costoEnvio = (metodo === "1" || metodo === "3") ? Number(window.prompt("Costo de entrega:", "0")) || 0 : 0;
+
+    const folio = `L-${Math.floor(1000 + Math.random() * 9000)}`;
+    const nuevaCaptura = {
+      id: Date.now(),
+      cliente: clienteLive.trim().toUpperCase(),
+      precioPrenda: Number(precio),
+      envio: costoEnvio,
+      total: Number(precio) + costoEnvio,
+      folio,
+      metodo: metodoTxt,
+      hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setCapturasLive([nuevaCaptura, ...capturasLive]);
+    try {
+      await supabase.from('ventas').insert([{ total: nuevaCaptura.total, costo_total: 0, detalles: `🔴 LIVE [${folio}]: ${nuevaCaptura.cliente} - Prenda: $${nuevaCaptura.precioPrenda} + Envío: $${nuevaCaptura.envio} (${metodoTxt})` }]);
+      obtenerTodo();
+    } catch (e) { console.error(e); }
+    setClienteLive('');
+    setPrecioLiveManual('');
+    setTimeout(() => inputClienteRef.current?.focus(), 50);
+  };
+
+  const generarWhatsAppLive = (cap) => {
+    let msg = `¡Hola *${cap.cliente}*! 👋 Folio: *${cap.folio}*\nPrenda: *$${cap.precioPrenda}*\nEnvío: *$${cap.envio}*\nTotal: *$${cap.total}*\n\nTienes 24 hrs para enviar comprobante. ✨`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  // --- LÓGICA NEGOCIO ---
+  const carritoAgrupado = useMemo(() => {
+    const grupos = {};
+    carrito.forEach(item => {
+      if (!grupos[item.id]) grupos[item.id] = { ...item, cantCar: 0, subtotal: 0 };
+      grupos[item.id].cantCar += 1;
+      grupos[item.id].subtotal += item.precio;
+    });
+    return Object.values(grupos);
+  }, [carrito]);
+
+  const inventarioReal = useMemo(() => {
+    return inventario.map(p => {
+      const enCar = carrito.filter(item => item.id === p.id).length;
+      return { ...p, stockActual: p.stock - enCar };
+    });
+  }, [inventario, carrito]);
+
+  const filtrados = useMemo(() => {
+    const fFiltro = new Date(fechaConsulta + "T00:00:00").toLocaleDateString();
+    const vnt = historial.filter(v => new Date(v.created_at).toLocaleDateString() === fFiltro);
+    const gst = gastos.filter(g => new Date(g.created_at).toLocaleDateString() === fFiltro);
+    const totalV = vnt.reduce((a, b) => a + (b.total || 0), 0);
+    const totalC = vnt.reduce((a, b) => a + (b.costo_total || 0), 0);
+    const totalG = gst.reduce((a, b) => a + Number(b.monto || 0), 0);
+    return { vnt, gst, totalV, totalG, utilidad: totalV - totalC - totalG };
+  }, [historial, gastos, fechaConsulta]);
+
+  const realizarCorte = () => {
+    const f = Number(window.prompt(`¿Efectivo físico en caja?`));
+    if (isNaN(f)) return;
+    const esperado = filtrados.totalV - filtrados.totalG;
+    const dif = f - esperado;
+    const nuevoCorte = { id: Date.now(), fechaFiltro: fechaConsulta, timestamp: new Date().toLocaleString(), reportado: f, diferencia: dif, responsable: usuarioActual };
+    const nuevosCortes = [nuevoCorte, ...cortes];
+    setCortes(nuevosCortes);
+    localStorage.setItem('cortesPacaPro', JSON.stringify(nuevosCortes));
+    alert("Corte realizado.");
+  };
+
+  async function finalizarVenta() {
+    if (carrito.length === 0) return;
+    const m = window.prompt("1. Efec | 2. Trans | 3. Tarj", "1");
+    let mTxt = m === "1" ? "Efectivo" : m === "2" ? "Transferencia" : "Tarjeta";
+    const tv = carrito.reduce((a, b) => a + b.precio, 0);
+    const cv = carrito.reduce((a, b) => a + (b.costo_unitario || 0), 0);
+    try {
+      await supabase.from('ventas').insert([{ total: tv, costo_total: cv, detalles: `🛒 Vendedor: ${usuarioActual} | Pago: ${mTxt} | Productos: ` + carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ') }]);
+      for (const item of carritoAgrupado) {
+        const pDB = inventario.find(p => p.id === item.id);
+        if (pDB) await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
+      }
+      setCarrito([]); 
+      obtenerTodo(); 
+      setVista('historial');
+    } catch (e) { alert("Error"); }
+  }
+
+  async function guardarTurbo(e) {
+    e.preventDefault();
+    await supabase.from('productos').insert([{ nombre: nuevoProd.nombre, precio: Number(nuevoProd.precio), costo_unitario: Number(nuevoProd.costo), stock: Number(nuevoProd.cantidad), paca: infoPaca.numero, proveedor: infoPaca.proveedor }]);
+    setNuevoProd({ ...nuevoProd, nombre: '', cantidad: 1 });
+    obtenerTodo();
+  }
+
+  // --- ESTILOS ---
+  const cardStyle = { background: theme.card, borderRadius: '15px', padding: '15px', border: `1px solid ${theme.border}`, marginBottom: '12px', color: theme.text };
+  const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text, boxSizing: 'border-box' };
+  const btnClass = "btn-interactivo";
+
+  if (!usuarioActual) {
+    return (
+      <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ ...cardStyle, width: '100%', maxWidth: '350px', textAlign: 'center' }}>
+          <h1 style={{ color: theme.accent }}>PACA PRO ⚡</h1>
+          <form onSubmit={manejarLogin}>
+            <input autoFocus placeholder="Nombre" value={inputLogin} onChange={e => setInputLogin(e.target.value)} style={{ ...inputStyle, textAlign: 'center', marginBottom: '15px' }} />
+            <button className={btnClass} style={{ width: '100%', padding: '15px', background: theme.accent, color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>ENTRAR</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', backgroundColor: theme.bg, color: theme.text, minHeight: '100vh', paddingBottom: '100px' }}>
+      <header style={{ background: theme.card, padding: '10px 15px', display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.border}` }}>
+        <h1 style={{fontSize:'14px'}}>PACA PRO <span style={{color: theme.accent}}>v15</span></h1>
+        <button onClick={cerrarSesion} style={{ background: 'none', border: 'none', color: theme.danger, fontSize: '10px' }}>SALIR 👤 {usuarioActual}</button>
+      </header>
+
+      <main style={{ padding: '15px', maxWidth: '500px', margin: '0 auto' }}>
+        
+        {vista === 'live' && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <div style={{...cardStyle, border: `1px solid ${theme.live}50`}}>
+              <input ref={inputClienteRef} placeholder="👤 Cliente" value={clienteLive} onChange={e=>setClienteLive(e.target.value)} style={{...inputStyle, fontSize: '18px', marginBottom: '15px'}} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>
+                {[50, 100, 150, 200, 250, 300].map(p => (
+                  <button key={p} className={btnClass} onClick={() => registrarCapturaLive(p)} disabled={!clienteLive.trim()} style={{ padding: '15px', backgroundColor: theme.bg, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: '10px', fontWeight: 'bold' }}>${p}</button>
+                ))}
+              </div>
+            </div>
+            {capturasLive.map(cap => (
+              <div key={cap.id} style={cardStyle}>
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                  <div><p style={{margin:0, fontWeight:'bold'}}>{cap.cliente}</p><span style={{fontSize:'10px', color:theme.textMuted}}>{cap.folio}</span></div>
+                  <div style={{textAlign:'right'}}><p style={{margin:0, color:theme.accent, fontWeight:'bold'}}>${cap.total}</p><button className={btnClass} onClick={() => generarWhatsAppLive(cap)} style={{background:theme.accent, color:'#fff', border:'none', fontSize:'10px', borderRadius:'5px', padding:'4px 8px'}}>WA 📱</button></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* MÓDULO DE APARTADOS ADICIONADO */}
+        {vista === 'apartados' && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <div style={{...cardStyle, border: `1px solid ${theme.accent}50`}}>
+              <h3 style={{fontSize:'14px', margin:'0 0 10px 0'}}>NUEVO APARTADO 🔖</h3>
+              <form onSubmit={guardarApartado}>
+                <input placeholder="Cliente" value={formApartado.cliente} onChange={e=>setFormApartado({...formApartado, cliente: e.target.value})} style={{...inputStyle, marginBottom:'10px'}} required />
+                <input placeholder="Producto/Detalle" value={formApartado.producto} onChange={e=>setFormApartado({...formApartado, producto: e.target.value})} style={{...inputStyle, marginBottom:'10px'}} required />
+                <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+                  <input type="number" placeholder="$ Total" value={formApartado.total} onChange={e=>setFormApartado({...formApartado, total: e.target.value})} style={inputStyle} required />
+                  <input type="number" placeholder="$ Anticipo" value={formApartado.anticipo} onChange={e=>setFormApartado({...formApartado, anticipo: e.target.value})} style={inputStyle} required />
+                </div>
+                <button className={btnClass} style={{width:'100%', padding:'12px', background:theme.accent, color:'#fff', borderRadius:'10px', border:'none', fontWeight:'bold'}}>REGISTRAR APARTADO</button>
+              </form>
+            </div>
+
+            <h3 style={{fontSize:'12px', color:theme.textMuted, marginBottom:'10px'}}>CONTROL DE APARTADOS</h3>
+            <div style={{overflowX:'auto', ...cardStyle, padding:'5px'}}>
+              <table style={{width:'100%', fontSize:'10px', borderCollapse:'collapse'}}>
+                <thead>
+                  <tr style={{color:theme.textMuted, borderBottom:`1px solid ${theme.border}`}}>
+                    <th style={{padding:'8px', textAlign:'left'}}>Cliente/Art.</th>
+                    <th style={{padding:'8px', textAlign:'right'}}>Saldo</th>
+                    <th style={{padding:'8px', textAlign:'center'}}>Estado</th>
+                    <th style={{padding:'8px', textAlign:'right'}}>Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apartados.map(ap => {
+                    const vencido = new Date() > new Date(ap.limite);
+                    return (
+                      <tr key={ap.id} style={{borderBottom:`1px solid ${theme.border}`}}>
+                        <td style={{padding:'8px'}}>
+                          <b>{ap.cliente}</b><br/>
+                          <span style={{fontSize:'8px'}}>{ap.producto}</span>
+                        </td>
+                        <td style={{padding:'8px', textAlign:'right'}}>
+                          <span style={{color:theme.danger}}>${ap.restante}</span><br/>
+                          <span style={{fontSize:'8px'}}>de ${ap.total}</span>
+                        </td>
+                        <td style={{padding:'8px', textAlign:'center'}}>
+                          {venciduo ? 
+                            <span style={{color:theme.danger, fontWeight:'bold'}}>⚠️ VENCIDO</span> : 
+                            <span style={{color:theme.accent}}>{new Date(ap.limite).toLocaleDateString()}</span>
+                          }
+                        </td>
+                        <td style={{padding:'8px', textAlign:'right', display:'flex', gap:'4px', justifyContent:'flex-end'}}>
+                          <button onClick={()=>enviarWhatsAppApartado(ap)} style={{background:theme.accent, border:'none', borderRadius:'4px', padding:'4px'}}>📱</button>
+                          <button onClick={()=>eliminarApartado(ap.id)} style={{background:theme.danger, border:'none', borderRadius:'4px', padding:'4px'}}>🗑️</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {vista === 'catalogo' && (
+          <>
+            <input placeholder="🔍 Buscar..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} style={{...inputStyle, marginBottom:'15px'}} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {inventarioReal.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase())).map(p => (
+                <div key={p.id} style={cardStyle}>
+                  <h4 style={{margin:'5px 0', fontSize:'13px'}}>{p.nombre}</h4>
+                  <p style={{fontSize:'18px', fontWeight:'bold'}}>${p.precio}</p>
+                  <button className={btnClass} onClick={()=>setCarrito([...carrito, p])} style={{width:'100%', padding:'8px', background:theme.accent, color:'#fff', border:'none', borderRadius:'8px'}}>AÑADIR</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {vista === 'pos' && (
+          <>
+            <div style={{...cardStyle, textAlign:'center', border: `2px solid ${theme.accent}`}}>
+              <h2 style={{fontSize:'40px', margin:0}}>${carrito.reduce((a,b)=>a+b.precio, 0).toFixed(2)}</h2>
+            </div>
+            {carritoAgrupado.map((item) => (
+              <div key={item.id} style={{...cardStyle, display:'flex', justifyContent:'space-between'}}>
+                <div>{item.nombre} x{item.cantCar}</div>
+                <button className={btnClass} onClick={() => setCarrito(carrito.filter(p => p.id !== item.id))} style={{color:theme.danger, background:'none', border:'none'}}>Quitar</button>
+              </div>
+            ))}
+            {carrito.length > 0 && <button className={btnClass} onClick={finalizarVenta} style={{width:'100%', padding:'15px', background:theme.accent, color:'#fff', borderRadius:'10px', fontWeight:'bold', border:'none'}}>COBRAR ✅</button>}
+          </>
+        )}
+      </main>
+
+      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: theme.card, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px', zIndex: 100 }}>
+        <button className={btnClass} onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔴</button>
+        <button className={btnClass} onClick={()=>setVista('apartados')} style={{background: vista==='apartados'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔖</button>
+        <button className={btnClass} onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', fontSize:'22px'}}>📦</button>
+        <button className={btnClass} onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', fontSize:'22px'}}>🛒</button>
+        <button className={btnClass} onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', fontSize:'22px'}}>⚡</button>
+        <button className={btnClass} onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', fontSize:'22px'}}>📈</button>
+      </nav>
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .btn-interactivo:active { transform: scale(0.95); }
+      `}</style>
+    </div>
+  );
+}mport React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -637,3 +1071,4 @@ export default function App() {
     </div>
   );
 }
+
