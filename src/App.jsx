@@ -43,7 +43,7 @@ export default function App() {
   // --- NUEVOS ESTADOS APARTADOS ---
   const [apartados, setApartados] = useState([]);
   const [nuevoApartado, setNuevoApartado] = useState({ cliente: '', producto: '', total: '', anticipo: '', telefono: '' });
-  const TIEMPO_LIMITE_HS = 24;
+  const TIEMPO_LIMITE_HS = 168; // CAMBIO: De 24 a 168 (7 días * 24 horas)
   
   const obtenerFechaLocal = () => {
     const d = new Date();
@@ -215,7 +215,7 @@ export default function App() {
     msg += `💵 Anticipo: *$${ap.anticipo}*\n`;
     msg += `📉 Restante: *${ap.restante}*\n`;
     msg += `--------------------------\n`;
-    msg += `⏳ Tiempo límite: ${TIEMPO_LIMITE_HS} hrs para liquidar.\n`;
+    msg += `⏳ Tiempo límite: 7 días para liquidar.\n`; // CAMBIO: Texto actualizado a 7 días
     msg += `¡Gracias por apartar! ✨`;
     window.open(`https://wa.me/${ap.telefono}?text=${encodeURIComponent(msg)}`, '_blank');
   };
