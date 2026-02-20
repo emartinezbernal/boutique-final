@@ -665,21 +665,40 @@ export default function App() {
       </main>
 
       <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: theme.card, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px', zIndex: 100 }}>
-        <button className={btnClass} onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔴</button>
-        <button className={btnClass} onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', fontSize:'22px'}}>📦</button>
+        <button className={btnClass} onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', flexDirection: 'column', gap: '4px'}}>
+          <span style={{fontSize:'22px'}}>🔴</span>
+          <span style={{fontSize:'9px', color: theme.textMuted}}>Live</span>
+        </button>
         
-        <button className={btnClass} onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', fontSize:'22px', position: 'relative'}}>
-          🛒
+        <button className={btnClass} onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', flexDirection: 'column', gap: '4px'}}>
+          <span style={{fontSize:'22px'}}>📦</span>
+          <span style={{fontSize:'9px', color: theme.textMuted}}>Stock</span>
+        </button>
+        
+        <button className={btnClass} onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', position: 'relative', flexDirection: 'column', gap: '4px'}}>
+          <span style={{fontSize:'22px'}}>🛒</span>
+          <span style={{fontSize:'9px', color: theme.textMuted}}>Venta</span>
           {carrito.length > 0 && (
-            <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: theme.danger, color: 'white', borderRadius: '50%', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold', border: `2px solid ${theme.card}` }}>
+            <span style={{ position: 'absolute', top: '-5px', right: '5px', background: theme.danger, color: 'white', borderRadius: '50%', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold', border: `2px solid ${theme.card}` }}>
               {carrito.length}
             </span>
           )}
         </button>
 
-        <button className={btnClass} onClick={()=>setVista('apartados')} style={{background: vista==='apartados'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔖</button>
-        <button className={btnClass} onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', fontSize:'22px'}}>⚡</button>
-        <button className={btnClass} onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', fontSize:'22px'}}>📈</button>
+        <button className={btnClass} onClick={()=>setVista('apartados')} style={{background: vista==='apartados'?theme.bg:'none', border:'none', flexDirection: 'column', gap: '4px'}}>
+          <span style={{fontSize:'22px'}}>🔖</span>
+          <span style={{fontSize:'9px', color: theme.textMuted}}>Apartar</span>
+        </button>
+        
+        <button className={btnClass} onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', flexDirection: 'column', gap: '4px'}}>
+          <span style={{fontSize:'22px'}}>⚡</span>
+          <span style={{fontSize:'9px', color: theme.textMuted}}>Admin</span>
+        </button>
+        
+        <button className={btnClass} onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', flexDirection: 'column', gap: '4px'}}>
+          <span style={{fontSize:'22px'}}>📈</span>
+          <span style={{fontSize:'9px', color: theme.textMuted}}>Corte</span>
+        </button>
       </nav>
 
       <style>{`
