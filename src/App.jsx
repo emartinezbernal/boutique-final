@@ -227,6 +227,62 @@ export default function App() {
     localStorage.setItem('apartadosPacaPro', JSON.stringify(filtrados));
   };
 
+  // NUEVA FUNCIÓN: APARTAR DESDE CARRITO AFECTANDO STOCK
+  async function apartarDesdeCarrito() {
+    if (carrito.length === 0) return;
+    
+    const cliente = window.prompt("Nombre del cliente para el apartado:");
+    if (!cliente) return;
+    
+    const tel = window.prompt("Número de WhatsApp (ej. 521...):");
+    const anticipo = window.prompt("Monto del anticipo recibido:", "0");
+    if (anticipo === null) return;
+
+    const tv = carrito.reduce((a, b) => a + b.precio, 0);
+    const productosTxt = carritoAgrupado.map(i => `${i.nombre} (x${i.cantCar})`).join(', ');
+
+    try {
+      // 1. Afectar Inventario en Supabase (como una compra)
+      for (const item of carritoAgrupado) {
+        const pDB = inventario.find(p => p.id === item.id);
+        if (pDB) {
+          await supabase.from('productos').update({ stock: pDB.stock - item.cantCar }).eq('id', item.id);
+        }
+      }
+
+      // 2. Registrar en la lista de apartados
+      const id = Date.now();
+      const nuevo = {
+        id,
+        cliente: cliente.toUpperCase(),
+        producto: productosTxt,
+        total: tv,
+        anticipo: Number(anticipo),
+        telefono: tel || '',
+        fecha: new Date().toISOString(),
+        estado: 'Pendiente',
+        restante: tv - Number(anticipo)
+      };
+
+      const listaActualizada = [nuevo, ...apartados];
+      setApartados(listaActualizada);
+      localStorage.setItem('apartadosPacaPro', JSON.stringify(listaActualizada));
+
+      // 3. Limpiar y refrescar
+      alert("Apartado registrado y stock descontado.");
+      setCarrito([]);
+      await obtenerTodo();
+      setVista('apartados');
+      
+      // Enviar WA automáticamente
+      generarWhatsAppApartado(nuevo);
+
+    } catch (e) {
+      alert("Error al procesar el stock del apartado");
+      console.error(e);
+    }
+  }
+
   // --- LÓGICA DE NEGOCIO ---
   const statsProveedores = useMemo(() => {
     const stats = {};
@@ -572,7 +628,12 @@ export default function App() {
                 <button className={btnClass} onClick={() => setCarrito(carrito.filter(p => p.id !== item.id))} style={{color:theme.danger, background:'none', border:'none'}}>Quitar</button>
               </div>
             ))}
-            {carrito.length > 0 && <button className={btnClass} onClick={finalizarVenta} style={{width:'100%', padding:'15px', background:theme.accent, color:'#fff', borderRadius:'10px', fontWeight:'bold', border:'none'}}>COBRAR ✅</button>}
+            {carrito.length > 0 && (
+              <div style={{display:'flex', gap:'10px'}}>
+                <button className={btnClass} onClick={finalizarVenta} style={{flex: 2, padding:'15px', background:theme.accent, color:'#fff', borderRadius:'10px', fontWeight:'bold', border:'none'}}>COBRAR ✅</button>
+                <button className={btnClass} onClick={apartarDesdeCarrito} style={{flex: 1, padding:'15px', background:theme.apartado, color:'#fff', borderRadius:'10px', fontWeight:'bold', border:'none'}}>APARTAR 🔖</button>
+              </div>
+            )}
           </>
         )}
 
