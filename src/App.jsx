@@ -314,6 +314,7 @@ export default function App() {
   const inputStyle = { width: '100%', padding: '12px', borderRadius: '10px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: theme.text, boxSizing: 'border-box' };
   const btnClass = "btn-interactivo";
   const btnExportStyle = { padding: '8px 12px', borderRadius: '8px', border: 'none', color: '#fff', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' };
+  const navBtnStyle = { background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', color: theme.textMuted, flex: 1 };
 
   // --- PANTALLA LOGIN ---
   if (!usuarioActual) {
@@ -338,7 +339,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ fontFamily: 'sans-serif', backgroundColor: theme.bg, color: theme.text, minHeight: '100vh', paddingBottom: '100px' }}>
+    <div style={{ fontFamily: 'sans-serif', backgroundColor: theme.bg, color: theme.text, minHeight: '100vh', paddingBottom: '110px' }}>
       <header style={{ background: theme.card, padding: '10px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${theme.border}` }}>
         <h1 style={{margin:0, fontSize:'14px'}}>PACA PRO <span style={{color: theme.accent}}>v15</span></h1>
         <div style={{ display:'flex', alignItems:'center', gap: '10px'}}>
@@ -565,34 +566,48 @@ export default function App() {
         )}
       </main>
 
-      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: theme.card, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-around', padding: '12px', borderRadius: '20px', zIndex: 100 }}>
-        <button className={btnClass} onClick={()=>setVista('live')} style={{background: vista==='live'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔴</button>
-        <button className={btnClass} onClick={()=>setVista('catalogo')} style={{background: vista==='catalogo'?theme.bg:'none', border:'none', fontSize:'22px'}}>📦</button>
+      <nav style={{ position: 'fixed', bottom: '20px', left: '20px', right: '20px', background: theme.card, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-around', padding: '10px 5px', borderRadius: '25px', zIndex: 100, boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
         
-        <button className={btnClass} onClick={()=>setVista('pos')} style={{background: vista==='pos'?theme.bg:'none', border:'none', fontSize:'22px', position: 'relative'}}>
-          🛒
+        <button className={btnClass} onClick={()=>setVista('live')} style={{...navBtnStyle, color: vista==='live'?theme.live:theme.textMuted}}>
+          <span style={{fontSize:'22px'}}>🔴</span>
+          <span style={{fontSize:'10px', fontWeight: vista==='live'?'bold':'normal'}}>En Vivo</span>
+        </button>
+
+        <button className={btnClass} onClick={()=>setVista('catalogo')} style={{...navBtnStyle, color: vista==='catalogo'?theme.accent:theme.textMuted}}>
+          <span style={{fontSize:'22px'}}>📦</span>
+          <span style={{fontSize:'10px', fontWeight: vista==='catalogo'?'bold':'normal'}}>Catálogo</span>
+        </button>
+        
+        <button className={btnClass} onClick={()=>setVista('pos')} style={{...navBtnStyle, position: 'relative', color: vista==='pos'?theme.accent:theme.textMuted}}>
+          <span style={{fontSize:'22px'}}>🛒</span>
+          <span style={{fontSize:'10px', fontWeight: vista==='pos'?'bold':'normal'}}>Caja</span>
           {carrito.length > 0 && (
-            <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: theme.danger, color: 'white', borderRadius: '50%', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold', border: `2px solid ${theme.card}` }}>
+            <span style={{ position: 'absolute', top: '0', right: '15%', background: theme.danger, color: 'white', borderRadius: '50%', padding: '2px 6px', fontSize: '9px', fontWeight: 'bold', border: `2px solid ${theme.card}` }}>
               {carrito.length}
             </span>
           )}
         </button>
 
-        <button className={btnClass} onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', fontSize:'22px'}}>⚡</button>
-        <button className={btnClass} onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', fontSize:'22px'}}>📈</button>
+        <button className={btnClass} onClick={()=>setVista('admin')} style={{...navBtnStyle, color: vista==='admin'?theme.accent:theme.textMuted}}>
+          <span style={{fontSize:'22px'}}>⚡</span>
+          <span style={{fontSize:'10px', fontWeight: vista==='admin'?'bold':'normal'}}>Admin</span>
+        </button>
+
+        <button className={btnClass} onClick={()=>setVista('historial')} style={{...navBtnStyle, color: vista==='historial'?theme.accent:theme.textMuted}}>
+          <span style={{fontSize:'22px'}}>📈</span>
+          <span style={{fontSize:'10px', fontWeight: vista==='historial'?'bold':'normal'}}>Ventas</span>
+        </button>
       </nav>
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .btn-interactivo {
-            transition: transform 0.1s active;
+            transition: all 0.2s ease;
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
         .btn-interactivo:active {
-            transform: scale(0.95);
+            transform: scale(0.9);
+            opacity: 0.7;
         }
       `}</style>
     </div>
