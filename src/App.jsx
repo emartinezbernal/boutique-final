@@ -17,7 +17,8 @@ const theme = {
   danger: '#ef4444',
   live: '#eab308',
   pdf: '#e11d48',
-  excel: '#16a34a'
+  excel: '#16a34a',
+  apartado: '#8b5cf6' // Color para el nuevo módulo
 };
 
 export default function App() {
@@ -38,6 +39,11 @@ export default function App() {
   const [precioLiveManual, setPrecioLiveManual] = useState('');
   const [capturasLive, setCapturasLive] = useState([]);
   const inputClienteRef = useRef(null);
+
+  // --- NUEVOS ESTADOS APARTADOS ---
+  const [apartados, setApartados] = useState([]);
+  const [nuevoApartado, setNuevoApartado] = useState({ cliente: '', producto: '', total: '', anticipo: '', telefono: '' });
+  const TIEMPO_LIMITE_HS = 24;
   
   const obtenerFechaLocal = () => {
     const d = new Date();
@@ -60,6 +66,10 @@ export default function App() {
       const cortesGuardados = localStorage.getItem('cortesPacaPro');
       if (cortesGuardados) setCortes(JSON.parse(cortesGuardados));
       
+      // Cargar apartados locales
+      const apartadosGuardados = localStorage.getItem('apartadosPacaPro');
+      if (apartadosGuardados) setApartados(JSON.parse(apartadosGuardados));
+
       // CARGAR LIBRERÍAS DE EXPORTACIÓN DINÁMICAMENTE
       if (!window.XLSX) {
         const sExcel = document.createElement("script");
@@ -177,6 +187,44 @@ export default function App() {
     msg += `*TOTAL A PAGAR: $${cap.total}*\n\n`;
     msg += `Envíanos tu comprobante. ¡Tienes 24 hrs! ⏳👗`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  // --- LÓGICA DE APARTADOS ---
+  const agregarApartado = (e) => {
+    e.preventDefault();
+    const id = Date.now();
+    const nuevo = { 
+      ...nuevoApartado, 
+      id, 
+      fecha: new Date().toISOString(),
+      estado: 'Pendiente',
+      restante: Number(nuevoApartado.total) - Number(nuevoApartado.anticipo)
+    };
+    const listaActualizada = [nuevo, ...apartados];
+    setApartados(listaActualizada);
+    localStorage.setItem('apartadosPacaPro', JSON.stringify(listaActualizada));
+    setNuevoApartado({ cliente: '', producto: '', total: '', anticipo: '', telefono: '' });
+  };
+
+  const generarWhatsAppApartado = (ap) => {
+    let msg = `*🔖 COMPROBANTE DE APARTADO - PACA PRO*\n`;
+    msg += `--------------------------\n`;
+    msg += `👤 Cliente: *${ap.cliente}*\n`;
+    msg += `📦 Producto: *${ap.producto}*\n`;
+    msg += `💰 Total: *$${ap.total}*\n`;
+    msg += `💵 Anticipo: *$${ap.anticipo}*\n`;
+    msg += `📉 Restante: *${ap.restante}*\n`;
+    msg += `--------------------------\n`;
+    msg += `⏳ Tiempo límite: ${TIEMPO_LIMITE_HS} hrs para liquidar.\n`;
+    msg += `¡Gracias por apartar! ✨`;
+    window.open(`https://wa.me/${ap.telefono}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const eliminarApartado = (id) => {
+    if(!window.confirm("¿Eliminar este registro?")) return;
+    const filtrados = apartados.filter(a => a.id !== id);
+    setApartados(filtrados);
+    localStorage.setItem('apartadosPacaPro', JSON.stringify(filtrados));
   };
 
   // --- LÓGICA DE NEGOCIO ---
@@ -418,6 +466,47 @@ export default function App() {
           </>
         )}
 
+        {/* --- NUEVA VISTA: APARTADOS --- */}
+        {vista === 'apartados' && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <div style={{...cardStyle, border: `1px solid ${theme.apartado}50`}}>
+              <h3 style={{fontSize:'14px', margin:'0 0 15px 0', color: theme.apartado}}>🔖 NUEVO APARTADO</h3>
+              <form onSubmit={agregarApartado}>
+                <input placeholder="Nombre del Cliente" value={nuevoApartado.cliente} onChange={e=>setNuevoApartado({...nuevoApartado, cliente: e.target.value})} style={{...inputStyle, marginBottom:'10px'}} required />
+                <input placeholder="Producto(s)" value={nuevoApartado.producto} onChange={e=>setNuevoApartado({...nuevoApartado, producto: e.target.value})} style={{...inputStyle, marginBottom:'10px'}} required />
+                <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+                  <input type="number" placeholder="Total" value={nuevoApartado.total} onChange={e=>setNuevoApartado({...nuevoApartado, total: e.target.value})} style={inputStyle} required />
+                  <input type="number" placeholder="Anticipo" value={nuevoApartado.anticipo} onChange={e=>setNuevoApartado({...nuevoApartado, anticipo: e.target.value})} style={inputStyle} required />
+                </div>
+                <input placeholder="WhatsApp (Ej: 521...)" value={nuevoApartado.telefono} onChange={e=>setNuevoApartado({...nuevoApartado, telefono: e.target.value})} style={{...inputStyle, marginBottom:'10px'}} />
+                <button className={btnClass} style={{width:'100%', padding:'12px', background:theme.apartado, color:'#fff', borderRadius:'10px', border:'none', fontWeight:'bold'}}>CREAR APARTADO</button>
+              </form>
+            </div>
+
+            <h3 style={{fontSize:'12px', color:theme.textMuted, marginBottom:'10px'}}>CONTROL DE APARTADOS</h3>
+            {apartados.map(ap => {
+              const horasTranscurridas = (Date.now() - ap.id) / (1000 * 60 * 60);
+              const esVencido = horasTranscurridas > TIEMPO_LIMITE_HS;
+              
+              return (
+                <div key={ap.id} style={{...cardStyle, border: esVencido ? `1px solid ${theme.danger}` : `1px solid ${theme.border}`}}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                    <div>
+                      <p style={{margin:0, fontWeight:'bold', color: esVencido ? theme.danger : theme.text}}>{ap.cliente} {esVencido && '⚠️ VENCIDO'}</p>
+                      <p style={{margin:'4px 0', fontSize:'12px'}}>{ap.producto}</p>
+                      <p style={{margin:0, fontSize:'10px', color: theme.textMuted}}>Restante: <b style={{color:theme.accent}}>${ap.restante}</b></p>
+                    </div>
+                    <div style={{textAlign:'right', display:'flex', flexDirection:'column', gap:'5px'}}>
+                      <button onClick={() => generarWhatsAppApartado(ap)} style={{...btnExportStyle, background: '#25D366'}}>WA 📱</button>
+                      <button onClick={() => eliminarApartado(ap.id)} style={{...btnExportStyle, background: theme.danger}}>Borrar</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {vista === 'admin' && (
           <>
             <div style={cardStyle}>
@@ -588,6 +677,7 @@ export default function App() {
           )}
         </button>
 
+        <button className={btnClass} onClick={()=>setVista('apartados')} style={{background: vista==='apartados'?theme.bg:'none', border:'none', fontSize:'22px'}}>🔖</button>
         <button className={btnClass} onClick={()=>setVista('admin')} style={{background: vista==='admin'?theme.bg:'none', border:'none', fontSize:'22px'}}>⚡</button>
         <button className={btnClass} onClick={()=>setVista('historial')} style={{background: vista==='historial'?theme.bg:'none', border:'none', fontSize:'22px'}}>📈</button>
       </nav>
